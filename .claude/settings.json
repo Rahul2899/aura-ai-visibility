@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "agentmemory@agentmemory": true,
+    "understand-anything@understand-anything": true
+  }
+}
