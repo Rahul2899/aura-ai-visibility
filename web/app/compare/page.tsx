@@ -1,19 +1,45 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { friendlyName, providerIcon } from "../lib/models";
+import { friendlyName, providerKey } from "../lib/models";
+import { getSessionId } from "../lib/session";
+import {
+  ArrowLeft,
+  Play,
+  CheckCircle2,
+  XCircle,
+  TrendingUp,
+  AlertTriangle,
+  Sparkles,
+  GitCompare,
+  Plus,
+  Loader2,
+  ArrowDown,
+  ArrowUp,
+  ChevronRight
+} from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type BrandOption = { id: number; name: string; visibility_pct: number | null };
 type ModelBias = { model: string; visibility_pct: number };
 type BrandData = {
-  id: number; name: string;
+  id: number;
+  name: string;
   insight: { visibility_pct: number; key_findings: string[]; recommendations: string[]; summary: string } | null;
   models: ModelBias[];
 };
 type JobState = { status: string; visibility_pct?: number; probe_count?: number; error?: string };
+
+const PROVIDER_DOT_CLASSES: Record<string, string> = {
+  amazon: "bg-amber-500 shadow-sm shadow-amber-500/20",
+  anthropic: "bg-orange-500 shadow-sm shadow-orange-500/20",
+  meta: "bg-blue-500 shadow-sm shadow-blue-500/20",
+  google: "bg-emerald-500 shadow-sm shadow-emerald-500/20",
+  openai: "bg-slate-400 shadow-sm shadow-zinc-350/20",
+  generic: "bg-slate-400",
+};
 
 export default function ComparePage() {
   const [allBrands, setAllBrands] = useState<BrandOption[]>([]);
@@ -25,7 +51,21 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/brands/compare`).then(r => r.json()).then(setAllBrands).catch(() => []);
+    const sess = getSessionId();
+    fetch(`${API}/brands/compare?session_id=${sess}`)
+      .then(r => r.json())
+      .then(brands => {
+        setAllBrands(brands);
+        // Auto-select first 2 audited brands so compare page isn't blank
+        if (Array.isArray(brands)) {
+          const audited = brands.filter(b => b.visibility_pct !== null);
+          const preselected = audited.slice(0, 2).map(b => b.id);
+          if (preselected.length > 0) {
+            setSelected(preselected);
+          }
+        }
+      })
+      .catch(() => []);
   }, []);
 
   function toggle(id: number) {
@@ -35,8 +75,13 @@ export default function ComparePage() {
   async function addAndSelect() {
     if (!newName.trim()) return;
     const res = await fetch(`${API}/brands`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim(), domain: newName.trim().toLowerCase().replace(/\s+/g, "") + ".com" }),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: newName.trim(),
+        domain: newName.trim().toLowerCase().replace(/\s+/g, "") + ".com",
+        session_id: getSessionId()
+      }),
     });
     const brand = await res.json();
     setAllBrands(prev => [...prev, { id: brand.id, name: brand.name, visibility_pct: null }]);
@@ -44,61 +89,89 @@ export default function ComparePage() {
     setNewName("");
   }
 
+  const loadComparison = useCallback(async () => {
+    if (selected.length === 0 || allBrands.length === 0) return;
+    setLoading(true);
+    try {
+      const results = await Promise.all(selected.map(async (id) => {
+        const brand = allBrands.find(b => b.id === id);
+        const [insights, bias] = await Promise.all([
+          fetch(`${API}/brands/${id}/insights`).then(r => r.json()).catch(() => []),
+          fetch(`${API}/brands/${id}/model-bias`).then(r => r.json()).catch(() => ({ models: [] })),
+        ]);
+        return {
+          id,
+          name: brand?.name ?? `Brand ${id}`,
+          insight: insights[0] ?? null,
+          models: bias.models ?? [],
+        };
+      }));
+      setData(results);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [selected, allBrands]);
+
   async function runParallelAudits() {
     if (selected.length === 0) return;
     setRunning(true);
     setJobs({});
     setData([]);
 
-    // Fire all audits simultaneously
+    // Fire all audits simultaneously, skip any that fail
     const jobMap: Record<number, string> = {};
     await Promise.all(selected.map(async (brandId) => {
-      const res = await fetch(`${API}/audit/brands/${brandId}`, { method: "POST" });
-      const { job_id } = await res.json();
-      jobMap[brandId] = job_id;
-      setJobs(prev => ({ ...prev, [brandId]: { status: "running" } }));
+      try {
+        const res = await fetch(`${API}/audit/brands/${brandId}`, { method: "POST" });
+        if (!res.ok) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: `HTTP ${res.status}` } })); return; }
+        const { job_id } = await res.json();
+        if (!job_id) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: "No job ID returned" } })); return; }
+        jobMap[brandId] = job_id;
+        setJobs(prev => ({ ...prev, [brandId]: { status: "running" } }));
+      } catch (e) {
+        setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: String(e) } }));
+      }
     }));
 
+    if (Object.keys(jobMap).length === 0) { setRunning(false); return; }
+
     // Poll all jobs until all complete
-    const poll = setInterval(async () => {
-      const updates: Record<number, JobState> = {};
-      let allDone = true;
+    const pollId = setInterval(async () => {
+      try {
+        const updates: Record<number, JobState> = {};
+        let allDone = true;
 
-      await Promise.all(Object.entries(jobMap).map(async ([brandId, jobId]) => {
-        const r = await fetch(`${API}/audit/${jobId}`);
-        const job: JobState = await r.json();
-        updates[Number(brandId)] = job;
-        if (job.status !== "completed" && job.status !== "failed") allDone = false;
-      }));
+        await Promise.all(Object.entries(jobMap).map(async ([brandId, jobId]) => {
+          try {
+            const r = await fetch(`${API}/audit/${jobId}`);
+            if (!r.ok) { updates[Number(brandId)] = { status: "failed", error: `HTTP ${r.status}` }; return; }
+            const job: JobState = await r.json();
+            updates[Number(brandId)] = job;
+            if (job.status !== "completed" && job.status !== "failed") allDone = false;
+          } catch { updates[Number(brandId)] = { status: "failed", error: "Poll error" }; }
+        }));
 
-      setJobs(updates);
+        setJobs(updates);
 
-      if (allDone) {
-        clearInterval(poll);
-        setRunning(false);
-        await loadComparison();
-      }
+        if (allDone) {
+          clearInterval(pollId);
+          setRunning(false);
+          await loadComparison();
+        }
+      } catch { clearInterval(pollId); setRunning(false); }
     }, 3000);
   }
 
-  async function loadComparison() {
-    if (selected.length === 0) return;
-    setLoading(true);
-    const results = await Promise.all(selected.map(async (id) => {
-      const brand = allBrands.find(b => b.id === id);
-      const [insights, bias] = await Promise.all([
-        fetch(`${API}/brands/${id}/insights`).then(r => r.json()).catch(() => []),
-        fetch(`${API}/brands/${id}/model-bias`).then(r => r.json()).catch(() => ({ models: [] })),
-      ]);
-      return {
-        id, name: brand?.name ?? `Brand ${id}`,
-        insight: insights[0] ?? null,
-        models: bias.models ?? [],
-      };
-    }));
-    setData(results);
-    setLoading(false);
-  }
+  // Auto-load comparison reports when selection updates
+  useEffect(() => {
+    if (selected.length > 0 && allBrands.length > 0 && !running) {
+      loadComparison();
+    } else if (selected.length === 0) {
+      setData([]);
+    }
+  }, [selected, allBrands, running, loadComparison]);
 
   // Cross-brand analysis
   const allModelIds = [...new Set(data.flatMap(d => d.models.map(m => m.model)))].sort();
@@ -133,7 +206,10 @@ export default function ComparePage() {
   const leaderPerModel = Object.entries(Object.fromEntries(
     allModelIds.map(m => {
       let best = { name: "", pct: -1 };
-      for (const d of data) { const p = pctFor(d, m); if (p !== null && p > best.pct) best = { name: d.name, pct: p }; }
+      for (const d of data) {
+        const p = pctFor(d, m);
+        if (p !== null && p > best.pct) best = { name: d.name, pct: p };
+      }
       return [m, best.name];
     })
   ));
@@ -142,83 +218,134 @@ export default function ComparePage() {
 
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
-      <header className="border-b px-8 py-4 flex items-center gap-4 sticky top-0 z-10 backdrop-blur-sm"
-        style={{ borderColor: "var(--border)", background: "rgba(8,8,14,0.9)" }}>
-        <Link href="/" className="text-sm transition-colors" style={{ color: "var(--text-3)" }}>← Dashboard</Link>
-        <div className="w-px h-4" style={{ background: "var(--border-2)" }} />
-        <span className="font-semibold" style={{ color: "var(--text)" }}>Multi-Brand Comparison</span>
-        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--accent-dim)", color: "var(--accent)" }}>
-          Audits run in parallel
-        </span>
+      {/* Header */}
+      <header className="border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md"
+        style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.92)" }}>
+        <div className="flex items-center gap-4">
+          <Link href="/" className="btn-ghost py-1.5 px-3 flex items-center gap-1.5 text-xs text-slate-700 hover:text-slate-900 font-semibold">
+            <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
+          </Link>
+          <div className="w-px h-4 bg-slate-200" />
+          <span className="font-bold text-sm text-slate-900 tracking-tight">Multi-Brand Comparison</span>
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-[var(--border-2)] bg-[var(--accent-dim)] text-[var(--accent)]">
+            Parallel Audits
+          </span>
+        </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-8 py-8 space-y-6">
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
 
-        {/* Brand selector */}
-        <div className="card p-6">
-          <p className="text-xs uppercase tracking-wide mb-4" style={{ color: "var(--text-3)" }}>Select brands to compare</p>
+        {/* Brand selector panel */}
+        <div className="card p-6 space-y-5">
+          <div>
+            <h2 className="text-slate-900 font-bold text-sm">Select Brands</h2>
+            <p className="text-slate-500 text-xs mt-0.5 font-semibold font-semibold">Toggle brands and trigger comparison runs</p>
+          </div>
 
-          <div className="flex flex-wrap gap-2 mb-4">
-            {allBrands.map(b => (
-              <button key={b.id} onClick={() => toggle(b.id)}
-                className="px-3 py-1.5 rounded-lg text-sm transition-all"
-                style={{
-                  background: selected.includes(b.id) ? "var(--accent-dim)" : "var(--surface-2)",
-                  border: `1px solid ${selected.includes(b.id) ? "var(--accent)" : "var(--border)"}`,
-                  color: selected.includes(b.id) ? "var(--accent)" : "var(--text-2)",
-                  fontWeight: selected.includes(b.id) ? 600 : 400,
-                }}>
-                {b.name}
-                {b.visibility_pct !== null && <span className="ml-1.5 text-xs opacity-60">{b.visibility_pct?.toFixed(0)}%</span>}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2.5">
+            {allBrands.map(b => {
+              const isSelected = selected.includes(b.id);
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => toggle(b.id)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer hover:border-slate-300 active:scale-95"
+                  style={{
+                    background: isSelected ? "var(--accent-dim)" : "var(--surface-2-solid)",
+                    borderColor: isSelected ? "var(--accent)" : "var(--border)",
+                    color: isSelected ? "var(--accent)" : "var(--text-2)",
+                  }}
+                  aria-pressed={isSelected}
+                >
+                  {b.name}
+                  {b.visibility_pct !== null && <span className="ml-2 font-extrabold opacity-70 tabular">{b.visibility_pct?.toFixed(0)}%</span>}
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex gap-3">
             <input value={newName} onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === "Enter" && addAndSelect()}
               placeholder="Or type a new brand to add..."
-              className="flex-1 rounded-lg px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-indigo-500"
-              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }}
+              className="flex-1 input-field py-2.5 text-sm"
+              aria-label="New brand name"
             />
-            <button onClick={addAndSelect} disabled={!newName.trim()} className="btn-primary">Add</button>
+            <button onClick={addAndSelect} disabled={!newName.trim()} className="btn-primary flex items-center gap-1.5 text-xs font-semibold">
+              <Plus className="w-4 h-4 text-slate-900" /> Add
+            </button>
           </div>
 
-          <div className="flex items-center gap-3 mt-4">
+          <div className="flex items-center flex-wrap gap-3 pt-2">
             <button onClick={runParallelAudits}
               disabled={selected.length === 0 || running}
-              className="btn-primary flex items-center gap-2">
-              {running ? <><span className="live-dot" /> Running audits...</> : `▶ Run ${selected.length} audit${selected.length !== 1 ? "s" : ""} in parallel`}
+              className="btn-primary flex items-center gap-2 text-xs font-semibold">
+              {running ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-900" />
+                  <span>Running parallel audits…</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 text-slate-900 fill-white" />
+                  <span>Run {selected.length} audits in parallel</span>
+                </>
+              )}
             </button>
             {selected.length > 0 && !running && (
-              <button onClick={loadComparison} disabled={loading} className="btn-ghost">
-                {loading ? "Loading..." : "Load existing data"}
+              <button onClick={loadComparison} disabled={loading} className="btn-ghost flex items-center gap-2 text-xs font-semibold">
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Loading reports…</span>
+                  </>
+                ) : (
+                  <span>Load report matrix</span>
+                )}
               </button>
             )}
             {selected.length > 0 && (
-              <button onClick={() => setSelected([])} className="text-sm" style={{ color: "var(--text-3)" }}>
+              <button onClick={() => setSelected([])} className="text-xs text-slate-400 hover:text-slate-600 font-bold cursor-pointer py-2 px-3 hover:bg-slate-100 rounded-xl transition-colors ml-auto">
                 Clear selection
               </button>
             )}
           </div>
 
-          {/* Job progress */}
+          {/* Parallel Job progress */}
           {Object.entries(jobs).length > 0 && (
-            <div className="mt-4 space-y-2">
+            <div className="pt-5 border-t border-slate-100 space-y-3">
               {Object.entries(jobs).map(([brandId, job]) => {
                 const brand = allBrands.find(b => b.id === Number(brandId));
+                const isCompleted = job.status === "completed";
+                const isFailed = job.status === "failed";
+                const progressWidth = isCompleted ? "100%" : `${Math.min((job.probe_count ?? 0) * 10, 85)}%`;
+                const progressColor = isCompleted ? "var(--green)" : isFailed ? "var(--red)" : "var(--accent)";
+
                 return (
-                  <div key={brandId} className="flex items-center gap-3">
-                    <span className="text-sm w-24 truncate" style={{ color: "var(--text-2)" }}>{brand?.name}</span>
-                    <div className="flex-1 h-1 rounded-full" style={{ background: "var(--border)" }}>
-                      <div className="h-1 rounded-full transition-all"
+                  <div key={brandId} className="flex items-center gap-4">
+                    <span className="text-xs font-bold text-slate-700 w-24 truncate">{brand?.name}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                      <div className="h-full rounded-full transition-all duration-500 ease-out"
                         style={{
-                          width: job.status === "completed" ? "100%" : `${Math.min((job.probe_count ?? 0) * 10, 85)}%`,
-                          background: job.status === "completed" ? "var(--green)" : job.status === "failed" ? "var(--red)" : "var(--accent)"
+                          width: progressWidth,
+                          backgroundColor: progressColor,
+                          boxShadow: !isCompleted && !isFailed ? "0 0 4px var(--accent-glow)" : undefined
                         }} />
                     </div>
-                    <span className="text-xs w-20 text-right" style={{ color: job.status === "completed" ? "var(--green)" : "var(--text-3)" }}>
-                      {job.status === "completed" ? `✓ ${job.visibility_pct?.toFixed(0)}%` : job.status === "failed" ? "✗ failed" : `${job.probe_count ?? 0} probes`}
+                    <span className="text-xs font-bold w-24 text-right flex items-center justify-end gap-1.5" style={{ color: isCompleted ? "var(--green)" : isFailed ? "var(--red)" : "var(--text-2)" }}>
+                      {isCompleted ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="tabular">{job.visibility_pct?.toFixed(0)}%</span>
+                        </>
+                      ) : isFailed ? (
+                        <>
+                          <XCircle className="w-3.5 h-3.5 text-red-400" />
+                          <span>failed</span>
+                        </>
+                      ) : (
+                        <span className="tabular">{job.probe_count ?? 0}/10 probes</span>
+                      )}
                     </span>
                   </div>
                 );
@@ -227,148 +354,202 @@ export default function ComparePage() {
           )}
         </div>
 
-        {/* Results */}
+        {/* Empty state — no brands selected yet */}
+        {selected.length === 0 && !running && (
+          <div className="card p-12 text-center" style={{ borderStyle: "dashed" }}>
+            <p className="text-slate-700 font-bold text-base mb-1">Select brands to compare</p>
+            <p className="text-slate-400 text-sm">Choose 2 or more brands from the left panel to see a side-by-side AI visibility breakdown.</p>
+          </div>
+        )}
+
+        {/* Comparison Results */}
         {data.length > 0 && (
           <>
-            {/* Score overview */}
-            <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${data.length}, 1fr)` }}>
+            {/* Score cards grid */}
+            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))` }}>
               {data.map(d => (
-                <div key={d.id} className="card p-5 text-center">
-                  <p className="font-semibold mb-3" style={{ color: "var(--text)" }}>{d.name}</p>
-                  <p className="text-5xl font-bold tabular" style={{ color: d.insight ? scoreColor(d.insight.visibility_pct ?? 0) : "var(--text-3)" }}>
+                <div key={d.id} className="card p-5 text-center flex flex-col items-center justify-center">
+                  <p className="font-extrabold text-sm text-slate-700 mb-2">{d.name}</p>
+                  <p className="text-5xl font-extrabold tabular leading-none my-2" style={{ color: d.insight ? scoreColor(d.insight.visibility_pct ?? 0) : "var(--text-3)" }}>
                     {d.insight ? `${d.insight.visibility_pct?.toFixed(0)}%` : "—"}
                   </p>
-                  <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>AI Visibility</p>
-                  <Link href={`/brands/${d.id}`} className="text-xs mt-2 inline-block" style={{ color: "var(--accent)" }}>
-                    View full report →
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1">AI Visibility</p>
+                  <Link href={`/brands/${d.id}`} className="text-xs text-[var(--accent)] hover:brightness-110 font-bold mt-4 inline-flex items-center gap-1.5">
+                    View report <ChevronRight className="w-3.5 h-3.5 text-[var(--accent)]" />
                   </Link>
                 </div>
               ))}
             </div>
 
-            {/* Model bias matrix */}
+            {/* Model matrix comparison */}
             {allModelIds.length > 0 && (
-              <div className="card p-6">
-                <p className="text-xs uppercase tracking-wide mb-4" style={{ color: "var(--text-3)" }}>Model Bias Matrix</p>
+              <div className="card p-6 overflow-hidden">
+                <p className="text-slate-500 text-xs uppercase font-bold tracking-wider mb-5">Model Bias Matrix</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr>
-                        <th className="text-left pb-3 pr-4 font-medium" style={{ color: "var(--text-3)", fontSize: 11 }}>MODEL</th>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="text-left pb-3 pr-4 font-bold text-slate-400 uppercase tracking-wider text-[10px] pl-3" style={{ minWidth: 170 }}>MODEL</th>
                         {data.map(d => (
-                          <th key={d.id} className="text-center pb-3 px-2 font-medium" style={{ color: "var(--text-2)", fontSize: 12, minWidth: 100 }}>{d.name}</th>
+                          <th key={d.id} className="text-center pb-3 px-2 font-bold text-slate-700 text-xs tracking-tight uppercase" style={{ minWidth: 100 }}>{d.name}</th>
                         ))}
-                        <th className="text-left pb-3 pl-4 font-medium" style={{ color: "var(--text-3)", fontSize: 11 }}>LEADER</th>
+                        <th className="text-left pb-3 pl-4 font-bold text-slate-400 uppercase tracking-wider text-[10px]" style={{ minWidth: 140 }}>LEADER</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {allModelIds.map(model => (
-                        <tr key={model} className="border-t" style={{ borderColor: "var(--border)" }}>
-                          <td className="py-3 pr-4 text-xs" style={{ color: "var(--text-2)" }}>
-                            {providerIcon(model)} {friendlyName(model)}
-                          </td>
-                          {data.map(d => {
-                            const m = d.models.find(x => x.model === model);
-                            const pct = m?.visibility_pct;
-                            return (
-                              <td key={d.id} className="py-3 px-2 text-center">
-                                {pct !== undefined ? (
-                                  <span className="font-bold tabular" style={{ color: scoreColor(pct), fontSize: 15 }}>{pct.toFixed(0)}%</span>
-                                ) : (
-                                  <span style={{ color: "var(--text-3)" }}>—</span>
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="py-3 pl-4 text-xs" style={{ color: "var(--text-2)" }}>
-                            {leaderPerModel.find(([m]) => m === model)?.[1] ?? "—"}
-                          </td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-slate-100 bg-slate-50/50">
+                      {allModelIds.map(model => {
+                        const provider = providerKey(model);
+                        const dotClass = PROVIDER_DOT_CLASSES[provider] || PROVIDER_DOT_CLASSES.generic;
+
+                        return (
+                          <tr key={model} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-3.5 pr-4 text-xs font-semibold text-slate-600 flex items-center gap-2 pl-3">
+                              <span className={`w-2 h-2 rounded-full ${dotClass} flex-shrink-0`} />
+                              <span>{friendlyName(model)}</span>
+                            </td>
+                            {data.map(d => {
+                              const m = d.models.find(x => x.model === model);
+                              const pct = m?.visibility_pct;
+                              return (
+                                <td key={d.id} className="py-3.5 px-2 text-center">
+                                  {pct !== undefined ? (
+                                    <span className="font-extrabold tabular text-base" style={{ color: scoreColor(pct) }}>{pct.toFixed(0)}%</span>
+                                  ) : (
+                                    <span className="text-slate-300 font-semibold">—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="py-3.5 pl-4 text-xs font-bold text-slate-700">
+                              {leaderPerModel.find(([m]) => m === model)?.[1] ?? "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* What's common / what differs */}
+            {/* Highlights Bento grid */}
             {data.length >= 2 && (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
                 {/* Common strength */}
-                <div className="card p-5">
-                  <p className="text-xs uppercase tracking-wide mb-3" style={{ color: "var(--green)" }}>✓ Common Strength</p>
+                <div className="card p-5 space-y-3" style={{ background: "var(--green-dim)", borderColor: "rgba(16,185,129,0.15)" }}>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                    Common Strength
+                  </p>
                   {commonStrongModels.length > 0 ? (
                     <>
-                      <p className="text-sm mb-2" style={{ color: "var(--text-2)" }}>Every brand wins on:</p>
-                      <div className="space-y-1">
-                        {commonStrongModels.map(m => (
-                          <p key={m} className="text-sm font-medium" style={{ color: "var(--text)" }}>{providerIcon(m)} {friendlyName(m)}</p>
-                        ))}
+                      <p className="text-xs text-slate-500 leading-normal font-semibold">Every brand wins on:</p>
+                      <div className="space-y-2">
+                        {commonStrongModels.map(m => {
+                          const provider = providerKey(m);
+                          const dotClass = PROVIDER_DOT_CLASSES[provider] || PROVIDER_DOT_CLASSES.generic;
+                          return (
+                            <div key={m} className="flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+                              <span className="text-xs font-bold text-slate-700">{friendlyName(m)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm" style={{ color: "var(--text-3)" }}>No model where all brands score 60%+ yet.</p>
+                    <p className="text-xs text-slate-400 leading-relaxed font-semibold">No model where all brands score 60%+ yet.</p>
                   )}
                 </div>
 
                 {/* Common gap */}
-                <div className="card p-5">
-                  <p className="text-xs uppercase tracking-wide mb-3" style={{ color: "var(--red)" }}>⚠ Common Gap</p>
+                <div className="card p-5 space-y-3" style={{ background: "var(--red-dim)", borderColor: "rgba(239,68,68,0.15)" }}>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-red-400 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-red-400" />
+                    Common Gap
+                  </p>
                   {commonWeakModels.length > 0 ? (
                     <>
-                      <p className="text-sm mb-2" style={{ color: "var(--text-2)" }}>Every brand is missing in:</p>
-                      <div className="space-y-1">
-                        {commonWeakModels.map(m => (
-                          <p key={m} className="text-sm font-medium" style={{ color: "var(--text)" }}>{providerIcon(m)} {friendlyName(m)}</p>
-                        ))}
+                      <p className="text-xs text-slate-500 leading-normal font-semibold">Every brand is missing in:</p>
+                      <div className="space-y-2">
+                        {commonWeakModels.map(m => {
+                          const provider = providerKey(m);
+                          const dotClass = PROVIDER_DOT_CLASSES[provider] || PROVIDER_DOT_CLASSES.generic;
+                          return (
+                            <div key={m} className="flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+                              <span className="text-xs font-bold text-slate-700">{friendlyName(m)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <p className="text-xs mt-3" style={{ color: "var(--text-3)" }}>A category-wide training gap, not a single-brand issue.</p>
+                      <p className="text-[10px] text-slate-400 leading-snug pt-2 font-bold border-t border-slate-100">
+                        Suggests a category-wide training block rather than single-brand drift.
+                      </p>
                     </>
                   ) : (
-                    <p className="text-sm" style={{ color: "var(--text-3)" }}>No model ignores every brand. Good coverage.</p>
+                    <p className="text-xs text-slate-400 leading-relaxed font-semibold">No model ignores every brand. Footprint is solid.</p>
                   )}
                 </div>
 
                 {/* Biggest differentiator */}
-                <div className="card p-5">
-                  <p className="text-xs uppercase tracking-wide mb-3" style={{ color: "var(--accent)" }}>◆ Where The Race Is Won</p>
+                <div className="card p-5 space-y-3" style={{ background: "var(--accent-dim)", borderColor: "var(--accent-glow)" }}>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-[var(--accent)] flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-[var(--accent)]" />
+                    Key Differentiator
+                  </p>
                   {biggestDiff && biggestDiff.spread > 0 ? (
                     <>
-                      <p className="text-sm font-medium mb-1" style={{ color: "var(--text)" }}>{providerIcon(biggestDiff.model)} {friendlyName(biggestDiff.model)}</p>
-                      <p className="text-2xl font-bold tabular" style={{ color: "var(--accent)" }}>{biggestDiff.spread.toFixed(0)}pt gap</p>
-                      <p className="text-xs mt-2" style={{ color: "var(--text-2)" }}>
-                        <span className="font-medium" style={{ color: "var(--green)" }}>{biggestDiff.leader}</span> leads,{" "}
-                        <span className="font-medium" style={{ color: "var(--red)" }}>{biggestDiff.laggard}</span> trails.
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-1.5 rounded-full ${PROVIDER_DOT_CLASSES[providerKey(biggestDiff.model)] || PROVIDER_DOT_CLASSES.generic}`} />
+                          <span className="text-xs font-extrabold text-slate-700">{friendlyName(biggestDiff.model)}</span>
+                        </div>
+                        <p className="text-3xl font-extrabold tabular text-[var(--accent)] mt-2">{biggestDiff.spread.toFixed(0)}pt gap</p>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-normal font-semibold">
+                        <span className="font-bold text-emerald-400">{biggestDiff.leader}</span> leads, while{" "}
+                        <span className="font-bold text-red-400">{biggestDiff.laggard}</span> lags.
                       </p>
-                      <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>The model where brands differ most.</p>
+                      <p className="text-[10px] text-slate-400 font-bold leading-normal pt-2 border-t border-slate-100">
+                        The core AI model that decides the category winner.
+                      </p>
                     </>
                   ) : (
-                    <p className="text-sm" style={{ color: "var(--text-3)" }}>Brands score evenly across models.</p>
+                    <p className="text-xs text-slate-400 leading-relaxed font-semibold">Brands score evenly across models.</p>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Key findings side by side */}
+            {/* Key findings panel */}
             {data.some(d => d.insight?.key_findings?.length) && (
               <div className="card p-6">
-                <p className="text-xs uppercase tracking-wide mb-4" style={{ color: "var(--text-3)" }}>Key Findings Comparison</p>
-                <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${data.length}, 1fr)` }}>
+                <p className="text-slate-500 text-xs uppercase font-bold tracking-wider mb-5">Key Findings Comparison</p>
+                <div className="grid gap-6 md:grid-cols-2" style={{ gridTemplateColumns: `repeat(${data.length}, 1fr)` }}>
                   {data.map(d => (
-                    <div key={d.id}>
-                      <p className="text-sm font-semibold mb-3" style={{ color: "var(--text)" }}>{d.name}</p>
+                    <div key={d.id} className="space-y-4">
+                      <p className="text-sm font-extrabold text-slate-900 border-b pb-2 border-slate-100">{d.name}</p>
                       {d.insight?.key_findings?.length ? (
-                        <div className="space-y-2">
-                          {d.insight.key_findings.slice(0, 3).map((f, i) => (
-                            <div key={i} className="flex gap-2">
-                              <span className="text-xs flex-shrink-0 mt-0.5" style={{ color: f.includes("0%") || f.includes("drops") ? "var(--red)" : "var(--green)" }}>
-                                {f.includes("0%") || f.includes("drops") ? "▼" : "▲"}
-                              </span>
-                              <p className="text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>{f}</p>
-                            </div>
-                          ))}
+                        <div className="space-y-3">
+                          {d.insight.key_findings.slice(0, 3).map((f, i) => {
+                            const isDown = f.includes("0%") || f.includes("drops") || f.includes("invisible") || f.toLowerCase().includes("weak");
+                            return (
+                              <div key={i} className="flex items-start gap-2">
+                                {isDown ? (
+                                  <ArrowDown className="w-3.5 h-3.5 mt-0.5 text-red-400 flex-shrink-0 bg-red-950/20 p-0.5 rounded" />
+                                ) : (
+                                  <ArrowUp className="w-3.5 h-3.5 mt-0.5 text-emerald-400 flex-shrink-0 bg-emerald-950/20 p-0.5 rounded" />
+                                )}
+                                <p className="text-xs text-slate-700 leading-relaxed font-semibold">{f}</p>
+                              </div>
+                            );
+                          })}
                         </div>
-                      ) : <p className="text-xs" style={{ color: "var(--text-3)" }}>No structured findings. Run a new audit.</p>}
+                      ) : (
+                        <p className="text-xs text-slate-400 font-semibold">No structured findings generated. Run a new audit to synthesize.</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -377,19 +558,19 @@ export default function ComparePage() {
           </>
         )}
 
-        {/* Audit explanation */}
+        {/* Summary info cards */}
         <div className="card p-6">
-          <p className="text-xs uppercase tracking-wide mb-3" style={{ color: "var(--text-3)" }}>Understanding Your Results</p>
-          <div className="grid grid-cols-2 gap-6">
+          <p className="text-slate-500 text-xs uppercase font-bold tracking-wider mb-4">Understanding Comparison Metrics</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
-              <p className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Why do scores change between runs?</p>
-              <p className="text-sm leading-relaxed" style={{ color: "var(--text-2)" }}>
+              <h3 className="text-sm font-bold text-slate-900 mb-2">Why do scores change between runs?</h3>
+              <p className="text-slate-400 text-xs leading-relaxed font-semibold">
                 Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic — the same question can get a different answer each time. Early runs with model failures (rate limits, wrong IDs) score lower because failed models count as 0%. Later runs with all models working give accurate measurements.
               </p>
             </div>
             <div>
-              <p className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>What does AI visibility actually mean?</p>
-              <p className="text-sm leading-relaxed" style={{ color: "var(--text-2)" }}>
+              <h3 className="text-sm font-bold text-slate-900 mb-2">What does AI visibility actually mean?</h3>
+              <p className="text-slate-400 text-xs leading-relaxed font-semibold">
                 When someone asks an AI "what HR software should I use?", does your brand appear in the answer? AI visibility measures this — across every AI model and ~10 different question angles. 55% means your brand appears in 55% of those AI responses. The goal: be the default recommendation.
               </p>
             </div>

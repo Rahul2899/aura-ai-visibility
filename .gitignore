@@ -1,4 +1,11 @@
 .env
+.DS_Store
+.agents/
+.claude/
+.remember/
+skills-lock.json
+2026-*.txt
+
 __pycache__/
 *.pyc
 *.pyo

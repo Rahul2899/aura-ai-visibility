@@ -1,23 +1,46 @@
-# Peec Clone — AI Visibility Analytics
+# Aura AI — Visibility Engine
 
 Measures brand visibility inside LLM responses across multiple AI models. Answers the question: **when someone asks an AI about your category, does your brand appear — and how favorably?**
+
+---
 
 ## Architecture
 
 ```mermaid
-graph LR
+graph TD
     Prompts["Probe Prompts\n(50 per brand)"] --> Runner
 
-    Runner --> OpenRouter["OpenRouter\nLlama 3.3 · Gemini Flash · DeepSeek"]
-    Runner --> Bedrock["AWS Bedrock\nNova Micro · Llama 3 · Claude Haiku"]
+    Runner --> Bedrock["AWS Bedrock\nNova Pro · Claude Sonnet · Claude Haiku"]
 
-    OpenRouter --> Extractor
     Bedrock --> Extractor
 
     Extractor["Brand Mention Extractor\n(LLM → Pydantic JSON)"] --> DB[(Postgres)]
     DB --> Scorer["Scorer\nvisibility · share-of-voice\nposition-weighted score"]
-    Scorer --> Dashboard["Next.js Dashboard"]
+    Scorer --> Dashboard["Next.js Bento Dashboard"]
 ```
+
+---
+
+## Features & Product Strategy
+
+### 👥 Dual-Board View (Admin vs Guest Sessions)
+To prevent rate-limit exhaustion and API key over-expenditure, the engine separates traffic into two interfaces via a toggle in the header:
+- **Guest Board (User)**: When a new user lands on the dashboard, they are assigned a persistent client-side session ID. This gives them a clean, isolated dashboard workspace where they can track their own brand and view only their specific analytics.
+- **Admin Board**: A dedicated board (accessible via the role selector) that allows system admins to see all tracked brands globally, run parallel audits, and manage the database.
+
+### 🍱 Premium Glassmorphic Bento Grid
+The dashboard utilizes an **Obsidian Glow** theme built using a custom HSL layout system:
+- High-level KPIs (average visibility, best performing, total tracked) are presented in glass cards with color-coded ambient glows.
+- Dynamic 12-column Bento grids group comparative charts, brand tables, and tracking controllers.
+- Accessible keyboard focus overlays, minimum 44px touch targets, and vector SVG iconography.
+
+### 🗑️ direct Unaudited Brand Deletion
+Users and admins can clean up their workspaces by deleting both audited and pending (unaudited) brands directly from the sidebar. Deleting a brand cascade-deletes all associated prompts, runs, mentions, insights, and performance charts in correct foreign-key sequence.
+
+### ☁️ AWS Bedrock Production Reliability
+The system relies on AWS Bedrock models for enterprise-grade response auditing, supporting Amazon Nova Pro, Meta Llama 3, and Anthropic Claude systems. Latencies are tracked per model inside `api_calls` for pipeline performance profiling.
+
+---
 
 ## Example Output
 
@@ -28,9 +51,11 @@ Share of Voice:          24.3%
 Position-Weighted Score: 0.1842
 ```
 
+---
+
 ## Design Decisions
 
-**Async + Semaphore(10).** 50 prompts × 6 models = 300 API calls per audit. Sequential takes 15+ minutes. Async with a bounded semaphore completes in ~2 minutes while respecting OpenRouter's free-tier rate limits (~20 req/min).
+**Async + Semaphore(10).** 50 prompts × 4 models = 200 API calls per audit. Sequential takes 10+ minutes. Async with a bounded semaphore completes in under 2 minutes while respecting API rate limits.
 
 **LLM-based extraction over regex/NER.** Brand names in real LLM responses are messy: "N26", "N26 Bank", "the German neobank", "Personio's platform". spaCy NER misses these. A structured extraction prompt with Pydantic validation + retry on parse failure handles the full distribution cleanly.
 
@@ -38,38 +63,7 @@ Position-Weighted Score: 0.1842
 
 **Position-weighted score.** Being mentioned first isn't the same as being mentioned third. `score = sum(1/position)` rewards top placement. A brand mentioned first in 10 runs scores higher than one mentioned fifth in all 10. This matches how users actually read AI responses.
 
-**Two providers, one interface.** OpenRouter (free models) and AWS Bedrock (paid, production-grade) share the same `complete(model, messages)` interface. Switching from free to production is a one-line config change.
-
-## Extractor Evaluation
-
-The extractor is the hardest part. We measure it against hand-labeled responses.
-
-```
-make eval
-```
-
-| Metric | Score |
-|--------|-------|
-| Precision | 0.91 |
-| Recall | 0.87 |
-| F1 | 0.89 |
-
-Known failure modes:
-- Brand names inside markdown code blocks (`\`BambooHR\``) — fixed with pre-strip
-- Qualified language ("X is sometimes recommended") parsed as neutral not positive — tuning in progress
-- Brand name variants ("Personio GmbH" vs "Personio") — normalized in scorer
-
-## What I'd Build Next at Peec
-
-1. **Prompt drift detection** — embed every response, track cosine distance week-over-week per prompt. Alert when a model shifts its answer without a version bump.
-2. **Citation clustering** — extract cited URLs, cluster by domain authority. Shows whether a brand's AI visibility comes from their own site, Reddit, G2, or competitor blogs.
-3. **Confidence intervals** — run each prompt N=3 times, report visibility as `mean ± stddev`. Marketing teams ask "is this real or noise?" — answer it in the dashboard.
-4. **Competitor alerting** — notify when a competitor's share-of-voice increases > X% week-over-week. Turns the tool from reporting to monitoring.
-5. **Fine-tuned extractor** — active learning loop: flag low-confidence extractions, send to human review, feed corrections back as few-shot examples.
-
-## Cost
-
-Built on OpenRouter free tier + AWS Bedrock free-tier credits to validate the pipeline. Swapping `MODEL=anthropic/claude-3-5-sonnet-20241022` is a one-line config change. At 300 calls/audit on GPT-4o-mini: ~$0.006/audit cycle.
+---
 
 ## Setup
 
@@ -79,9 +73,9 @@ pip install -r requirements.txt
 
 # 2. Copy and fill in secrets
 cp .env.example .env
-# Edit .env with your OPENROUTER_API_KEY and AWS credentials
+# Edit .env with your AWS Bedrock credentials (DO NOT share or commit this file)
 
-# 3. Start Postgres
+# 3. Start Postgres database
 make up
 
 # 4. Run migrations
@@ -97,8 +91,10 @@ make audit BRAND_ID=1
 make report BRAND_ID=1 FORMAT=markdown
 ```
 
+---
+
 ## AWS Bedrock Setup (one-time)
 
 1. Open [AWS Bedrock Model Access](https://console.aws.amazon.com/bedrock/home#/modelaccess) in `us-east-1`
-2. Enable: **Amazon Nova Micro**, **Llama 3 70B**, **Claude Haiku**
+2. Enable: **Amazon Nova Pro**, **Llama 3 70B**, **Claude Haiku**, **Claude Sonnet**
 3. Add `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to your `.env`

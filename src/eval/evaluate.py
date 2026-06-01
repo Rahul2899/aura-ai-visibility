@@ -11,13 +11,13 @@ import json
 from pathlib import Path
 import structlog
 
-from src.llm.client import OpenRouterClient, DEFAULT_MODELS
 from src.llm.extractor import extract_mentions
+from src.llm.bedrock_client import BEDROCK_MODELS
 
 log = structlog.get_logger()
 
 LABELED_PATH = Path(__file__).parent / "labeled.jsonl"
-EVAL_MODEL = DEFAULT_MODELS[0]  # use first free model for eval
+EVAL_MODEL = BEDROCK_MODELS[0]  # use first Bedrock model for eval
 
 
 def _normalize(name: str) -> str:

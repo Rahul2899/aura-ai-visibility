@@ -9,12 +9,19 @@ load_dotenv()
 log = structlog.get_logger()
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
-DEFAULT_MODELS: list[str] = []  # OpenRouter models disabled — using Bedrock only for reliability
+
+# Production uses Bedrock only. To re-enable OpenRouter:
+#   1. Add model IDs to DEFAULT_MODELS below (e.g. "meta-llama/llama-3.3-70b-instruct")
+#   2. Set OPENROUTER_API_KEY in your .env
+DEFAULT_MODELS: list[str] = []
 
 
 class OpenRouterClient:
     def __init__(self):
-        self.api_key = os.environ["OPENROUTER_API_KEY"]
+        key = os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            raise RuntimeError("OPENROUTER_API_KEY is not set. Add it to .env or set DEFAULT_MODELS=[] to use Bedrock only.")
+        self.api_key = key
         self.http = httpx.AsyncClient(timeout=90)
 
     async def complete(self, model: str, messages: list[dict], max_retries: int = 3) -> dict:

@@ -25,7 +25,12 @@ SYSTEM_PROMPT = """You are an AI brand visibility analyst. AI models learn from 
 
 Steps:
 1. Call get_brand_context.
-2. Run 8-10 probe questions covering: brand-direct, category, feature, regional, and competitor-comparison queries.
+2. Run 8-10 probe questions customized to the brand's specific industry, category, and scale. Do NOT ask generic "Tell me about brand X" or "Is brand X good" queries. Instead, write realistic search-intent prompts that actual buyers ask when looking for solutions:
+   - Brand-Direct: Questions seeking specific technical, pricing, integration, or compliance details (e.g., "Does [Brand] support HIPAA compliance?" or "Can I connect [Brand] to Salesforce?").
+   - Category Recommendation: Natural language recommendation queries detailing scale, industry, and pain point (e.g., "What is the best expense management software for a B2B SaaS startup with 50 employees?").
+   - Feature-Specific: Prompts looking for solutions with specific capabilities (e.g., "Which virtual card systems allow instant CSV exports and real-time spending controls?").
+   - Competitor Face-Off: Direct side-by-side comparison requests matching the brand against retrieved competitors (e.g., "Compare [Brand] vs [Competitor1] on ease-of-use, customer support, and API coverage").
+   - Regional/Market: Regionally-specific recommendation queries relevant to the brand's headquarter country or primary customer markets.
 3. Call finish with structured findings.
 
 WRITE TIGHT. No filler, no hedging, no marketing speak. Every output is scannable in 2 seconds.
@@ -95,12 +100,12 @@ TOOLS = [
 
 
 def _bedrock_client():
-    return boto3.client(
-        "bedrock-runtime",
-        region_name=os.environ.get("AWS_REGION", "us-east-1"),
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-    )
+    # On EC2 with IAM role: no explicit keys needed — boto3 uses instance metadata.
+    kwargs = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
+    if os.environ.get("AWS_ACCESS_KEY_ID"):
+        kwargs["aws_access_key_id"] = os.environ.get("AWS_ACCESS_KEY_ID")
+        kwargs["aws_secret_access_key"] = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    return boto3.client("bedrock-runtime", **kwargs)
 
 
 def _call_claude_sync(client, messages: list) -> dict:

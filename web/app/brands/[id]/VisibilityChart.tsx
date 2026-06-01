@@ -7,11 +7,11 @@ type DataPoint = { label: string; visibility: number };
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
   if (!active || !payload?.length) return null;
   const pct = payload[0].value;
-  const color = pct >= 60 ? "#22c55e" : pct >= 35 ? "#f59e0b" : "#ef4444";
+  const color = pct >= 60 ? "var(--green)" : pct >= 35 ? "var(--amber)" : "var(--red)";
   return (
-    <div style={{ background: "#0e0e18", border: "1px solid #2a2a40", borderRadius: 10, padding: "10px 14px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-      <p style={{ color: "#8888a8", fontSize: 11, marginBottom: 3, letterSpacing: 0.3 }}>{label}</p>
-      <p style={{ color, fontWeight: 700, fontSize: 18 }} className="tabular">{pct.toFixed(1)}%</p>
+    <div className="card p-3 shadow-xl border-zinc-800" style={{ minWidth: 120 }}>
+      <p className="text-xs text-zinc-400 font-medium mb-1">{label}</p>
+      <p className="text-lg font-bold tabular" style={{ color }}>{pct.toFixed(1)}%</p>
     </div>
   );
 };

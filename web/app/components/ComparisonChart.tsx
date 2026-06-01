@@ -14,9 +14,9 @@ const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { payl
   if (!active || !payload?.length) return null;
   const { name, pct } = payload[0].payload;
   return (
-    <div style={{ background: "#0e0e18", border: "1px solid #2a2a40", borderRadius: 10, padding: "8px 12px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-      <p style={{ color: "#8888a8", fontSize: 11, marginBottom: 2 }}>{name}</p>
-      <p style={{ color: color(pct), fontWeight: 700, fontSize: 16 }} className="tabular">{pct.toFixed(1)}%</p>
+    <div className="card p-3 shadow-xl border-zinc-800" style={{ minWidth: 120 }}>
+      <p className="text-xs text-zinc-400 font-medium mb-1">{name}</p>
+      <p className="text-lg font-bold tabular" style={{ color: color(pct) }}>{pct.toFixed(1)}%</p>
     </div>
   );
 };
@@ -29,22 +29,28 @@ export default function ComparisonChart({ brands }: { brands: Brand[] }) {
 
   if (data.length === 0) return null;
 
+  const chartSummary = `Horizontal bar chart showing AI visibility ranking. ` +
+    data.map(d => `${d.name}: ${Math.round(d.pct)}%`).join(", ");
+
   return (
-    <ResponsiveContainer width="100%" height={data.length * 54 + 16}>
-      <BarChart data={data} layout="vertical" margin={{ left: 0, right: 48, top: 0, bottom: 0 }} barCategoryGap={14}>
-        <XAxis type="number" domain={[0, 100]} hide />
-        <YAxis type="category" dataKey="name" width={110}
-          tick={{ fill: "#c8c8d8", fontSize: 13, fontWeight: 500 }} axisLine={false} tickLine={false} />
-        <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(92,110,245,0.06)" }} />
-        <Bar dataKey="pct" radius={[0, 7, 7, 0]} background={{ fill: "#14141f", radius: 7 }}>
-          {data.map((entry, i) => (
-            <Cell key={i} fill={color(entry.pct)} />
-          ))}
-          <LabelList dataKey="pct" position="right"
-            formatter={(v: unknown) => `${Math.round(Number(v))}%`}
-            style={{ fill: "#c8c8d8", fontSize: 12, fontWeight: 700 }} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <div className="relative w-full" aria-label="Competitive visibility chart" role="img">
+      <span className="sr-only">{chartSummary}</span>
+      <ResponsiveContainer width="100%" height={data.length * 54 + 16}>
+        <BarChart data={data} layout="vertical" margin={{ left: 0, right: 48, top: 0, bottom: 0 }} barCategoryGap={14}>
+          <XAxis type="number" domain={[0, 100]} hide />
+          <YAxis type="category" dataKey="name" width={110}
+            tick={{ fill: "var(--text-2)", fontSize: 13, fontWeight: 500 }} axisLine={false} tickLine={false} />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(92,110,245,0.04)" }} />
+          <Bar dataKey="pct" radius={[0, 6, 6, 0]} background={{ fill: "var(--surface-2)", radius: 6 }}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={color(entry.pct)} />
+            ))}
+            <LabelList dataKey="pct" position="right"
+              formatter={(v: unknown) => `${Math.round(Number(v))}%`}
+              style={{ fill: "var(--text-2)", fontSize: 12, fontWeight: 700 }} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }

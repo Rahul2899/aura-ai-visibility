@@ -23,6 +23,7 @@ class Brand(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     domain: Mapped[Optional[str]] = mapped_column(String(255))
     competitors: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     prompts: Mapped[list["Prompt"]] = relationship(back_populates="brand")
 
@@ -46,7 +47,7 @@ class Run(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     prompt_id: Mapped[int] = mapped_column(ForeignKey("prompts.id"), nullable=False)
     model: Mapped[str] = mapped_column(String(200), nullable=False)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="openrouter")
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="bedrock")
     response_text: Mapped[Optional[str]] = mapped_column(Text)
     raw_json: Mapped[Optional[dict]] = mapped_column(JSONB)
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
@@ -112,3 +113,11 @@ class ProbePerformance(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=0)
     run_count: Mapped[int] = mapped_column(Integer, default=0)
     last_used: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditLimit(Base):
+    __tablename__ = "audit_limits"
+
+    ip_address: Mapped[str] = mapped_column(String(100), primary_key=True)
+    audit_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_audit_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

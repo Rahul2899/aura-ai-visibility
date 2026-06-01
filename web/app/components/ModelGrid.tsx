@@ -1,25 +1,73 @@
 "use client";
 
-import { friendlyName, providerIcon } from "../lib/models";
+import { friendlyName, providerKey } from "../lib/models";
 
 type Model = { model: string; visibility_pct: number };
 
+const PROVIDER_THEMES: Record<string, { label: string; badgeClass: string; dotClass: string }> = {
+  amazon: {
+    label: "Amazon",
+    badgeClass: "border-amber-500/20 bg-amber-500/5 text-amber-400",
+    dotClass: "bg-amber-400",
+  },
+  anthropic: {
+    label: "Anthropic",
+    badgeClass: "border-orange-500/20 bg-orange-500/5 text-orange-400",
+    dotClass: "bg-orange-500",
+  },
+  meta: {
+    label: "Meta",
+    badgeClass: "border-blue-500/20 bg-blue-500/5 text-blue-400",
+    dotClass: "bg-blue-500",
+  },
+  google: {
+    label: "Google",
+    badgeClass: "border-emerald-500/20 bg-emerald-500/5 text-emerald-400",
+    dotClass: "bg-emerald-400",
+  },
+  openai: {
+    label: "OpenAI",
+    badgeClass: "border-slate-300 bg-slate-100 text-slate-600",
+    dotClass: "bg-slate-400",
+  },
+  generic: {
+    label: "AI Model",
+    badgeClass: "border-slate-300 bg-slate-100 text-slate-500",
+    dotClass: "bg-slate-400",
+  },
+};
+
 export default function ModelGrid({ models }: { models: Model[] }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="region" aria-label="Model performance metrics">
       {models.map(({ model, visibility_pct }) => {
         const pct = visibility_pct;
-        const color = pct >= 60 ? "#10b981" : pct >= 35 ? "#f59e0b" : "#ef4444";
-        const bg = pct >= 60 ? "rgba(16,185,129,0.08)" : pct >= 35 ? "rgba(245,158,11,0.08)" : "rgba(239,68,68,0.08)";
+        const scoreColor = pct >= 60 ? "var(--green)" : pct >= 35 ? "var(--amber)" : "var(--red)";
+        const key = providerKey(model);
+        const theme = PROVIDER_THEMES[key] || PROVIDER_THEMES.generic;
+
         return (
-          <div key={model} className="rounded-xl p-4 border" style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}>
+          <div
+            key={model}
+            className="rounded-xl p-4 border transition-all duration-300 hover:border-slate-300"
+            style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}
+          >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm">{providerIcon(model)}</span>
-              <span className="text-xl font-bold tabular" style={{ color }}>{pct.toFixed(0)}%</span>
+              {/* Custom styled provider badge */}
+              <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border ${theme.badgeClass} flex items-center gap-1.5`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${theme.dotClass}`} />
+                {theme.label}
+              </span>
+              <span className="text-xl font-bold tabular" style={{ color: scoreColor }}>
+                {pct.toFixed(0)}%
+              </span>
             </div>
-            <p className="text-zinc-400 text-xs leading-tight">{friendlyName(model)}</p>
-            <div className="mt-2 w-full rounded-full h-1" style={{ background: "var(--border)" }}>
-              <div className="h-1 rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+            <p className="text-slate-700 text-xs font-semibold leading-snug">{friendlyName(model)}</p>
+            <div className="mt-3 w-full rounded-full h-1.5 bg-slate-100 overflow-hidden" style={{ border: "1px solid var(--border-solid)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-1000 ease-out"
+                style={{ width: `${pct}%`, backgroundColor: scoreColor }}
+              />
             </div>
           </div>
         );

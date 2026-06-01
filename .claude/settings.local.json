@@ -2,7 +2,31 @@
   "permissions": {
     "allow": [
       "mcp__agentmemory__memory_sessions",
-      "mcp__agentmemory__memory_smart_search"
+      "mcp__agentmemory__memory_smart_search",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('keys:', list\\(d.keys\\(\\)\\)\\); print\\('node count:', len\\(d.get\\('nodes',[]\\)\\)\\); print\\('edge count:', len\\(d.get\\('edges',[]\\)\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(node /Users/rahul2202/Downloads/Peecclone/.understand-anything/tmp/ua-arch-analyze.js /Users/rahul2202/Downloads/Peecclone/.understand-anything/tmp/ua-arch-input.json /Users/rahul2202/Downloads/Peecclone/.understand-anything/tmp/ua-arch-results.json)",
+      "Bash(node *)",
+      "Bash(alembic heads *)",
+      "Bash(alembic current *)",
+      "Bash(alembic history *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"=== tsc exit $? ===\")",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(curl -s http://localhost:8000/brands)",
+      "Bash(curl -s \"http://localhost:8000/brands/compare\")",
+      "Bash(curl -s -X POST http://localhost:8000/audits/check-limit -H 'Content-Type: application/json' -H 'X-Forwarded-For: 1.2.3.4')",
+      "Bash(python3 -c \"import sys,json; print\\(' ', json.load\\(sys.stdin\\)\\)\")",
+      "Bash(curl -s \"http://localhost:8000/brands/compare?session_id=example\")",
+      "Bash(curl -s \"http://localhost:8000/brands/1003/insights\")",
+      "Bash(curl -s \"http://localhost:8000/brands/1003/model-bias\")",
+      "Bash(curl -s \"http://localhost:8000/brands/1004/probe-performance\")",
+      "Bash(curl -s \"http://localhost:8000/brands/compare?session_id=brand-new-user-xyz\")",
+      "Bash(curl -s -w '\\\\n%{http_code}' -X POST http://localhost:8000/brands -H 'Content-Type: application/json' -d '{\"name\":\"\",\"domain\":\"test.com\",\"session_id\":\"test\"}')",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -X DELETE http://localhost:8000/brands/1003/insights/20?session_id=wrong-session)",
+      "Bash(python3 -m src.cli orchestrate-audit 1003)",
+      "Bash(echo \"Picked audit started \\(PID $!\\)\")"
     ]
   },
   "sandbox": {

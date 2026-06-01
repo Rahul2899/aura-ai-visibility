@@ -10,7 +10,7 @@ log = structlog.get_logger()
 
 BEDROCK_MODELS = [
     "us.amazon.nova-pro-v1:0",
-    "meta.llama3-70b-instruct-v1:0",
+    "meta.llama3-3-70b-instruct-v1:0",
     "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 ]
@@ -33,12 +33,13 @@ def _make_body(model: str, messages: list[dict]) -> dict:
 class BedrockClient:
     def __init__(self):
         import boto3
-        self.client = boto3.client(
-            "bedrock-runtime",
-            region_name=os.environ.get("AWS_REGION", "us-east-1"),
-            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-        )
+        # On EC2: attach an IAM role with BedrockFullAccess. Remove static keys from .env.
+        # Boto3 auto-discovers credentials from the EC2 instance metadata — no keys needed.
+        kwargs = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
+        if os.environ.get("AWS_ACCESS_KEY_ID"):
+            kwargs["aws_access_key_id"] = os.environ.get("AWS_ACCESS_KEY_ID")
+            kwargs["aws_secret_access_key"] = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        self.client = boto3.client("bedrock-runtime", **kwargs)
 
     def _call_sync(self, model: str, messages: list[dict]) -> dict:
         body = _make_body(model, messages)

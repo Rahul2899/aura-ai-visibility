@@ -9,6 +9,44 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peec"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Overrides DATABASE_URL from .env to use the db service hostname
+      DATABASE_URL: postgresql+asyncpg://peec:peec@db:5432/peec
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    # NEXT_PUBLIC_API_URL is baked at build time — set to your EC2 IP or domain before running
+    # docker compose build, or pass it as a build arg.
+    # Default here works for local testing only.
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - web
+    restart: unless-stopped
 
 volumes:
   pgdata:

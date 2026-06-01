@@ -2,8 +2,8 @@ const MODEL_NAMES: Record<string, string> = {
   "us.amazon.nova-pro-v1:0": "Nova Pro",
   "amazon.nova-micro-v1:0": "Nova Micro",
   "us.amazon.nova-micro-v1:0": "Nova Micro",
-  "meta.llama3-70b-instruct-v1:0": "Llama 3 70B",
-  "us.meta.llama3-70b-instruct-v1:0": "Llama 3 70B",
+  "meta.llama3-3-70b-instruct-v1:0": "Llama 3.3 70B",
+  "us.meta.llama3-3-70b-instruct-v1:0": "Llama 3.3 70B",
   "us.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
   "anthropic.claude-haiku-4-5": "Claude Haiku 4.5",
   "us.anthropic.claude-sonnet-4-5-20250929-v1:0": "Claude Sonnet 4.5",
@@ -36,4 +36,14 @@ export function providerIcon(modelId: string): string {
     if (lower.includes(key)) return icon;
   }
   return "⬜";
+}
+
+export function providerKey(modelId: string): string {
+  const lower = modelId.toLowerCase();
+  if (lower.includes("nova") || lower.includes("amazon")) return "amazon";
+  if (lower.includes("claude") || lower.includes("anthropic")) return "anthropic";
+  if (lower.includes("llama") || lower.includes("meta")) return "meta";
+  if (lower.includes("gemma") || lower.includes("google")) return "google";
+  if (lower.includes("gpt") || lower.includes("openai")) return "openai";
+  return "generic";
 }
