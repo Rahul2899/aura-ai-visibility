@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
-import { getSessionId, isAdminMode, setAdminMode, getAdminKey, setAdminKey } from "./lib/session";
+import { getSessionId } from "./lib/session";
 import { reloadPage } from "./lib/navigation";
 import {
   Sparkles,
@@ -83,35 +83,16 @@ export default function Home() {
   const [domain] = useState("");
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [admin, setAdmin] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
-
-  // Sync admin mode state on mount
-  useEffect(() => {
-    setAdmin(isAdminMode());
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const sess = getSessionId();
-      const headers: Record<string, string> = {};
-      if (sess === "admin") {
-        headers["X-Admin-Key"] = getAdminKey();
-      }
-      const res = await fetch(`${API}/brands/compare?session_id=${sess}`, { headers });
-      if (res.ok) {
-        setBrands(await res.json());
-      } else if (res.status === 401) {
-        // Key invalid: clear admin states and reload
-        setAdminMode(false);
-        setAdminMode(false);
-        setAdmin(false);
-        reloadPage();
-      }
+      const res = await fetch(`${API}/brands/compare?session_id=${sess}`);
+      if (res.ok) setBrands(await res.json());
 
-      // Fetch IP limit status for rate rendering
       const limitRes = await fetch(`${API}/audit/limit-status?session_id=${sess}`);
       if (limitRes.ok) {
         const limitData = await limitRes.json();
@@ -132,8 +113,8 @@ export default function Home() {
   async function addBrand(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    if (limitReached && !admin) {
-      alert("Audit limit reached. Public users can only run up to 2 audits.");
+    if (limitReached) {
+      alert("You've used both free audits. Come back later or try from a different network.");
       return;
     }
     setAdding(true);
@@ -163,26 +144,12 @@ export default function Home() {
 
   async function deleteBrand(id: number) {
     const targetBrand = brands.find(b => b.id === id);
-    if (targetBrand?.is_example) {
-      alert("Forbidden: Preloaded example brands cannot be deleted.");
-      return;
-    }
+    if (targetBrand?.is_example) return;
     if (!confirm("Delete this brand and all its data?")) return;
     setDeleting(id);
-    const headers: Record<string, string> = {};
     const sess = getSessionId();
-    if (sess === "admin") {
-      headers["X-Admin-Key"] = getAdminKey();
-    }
-    const res = await fetch(`${API}/brands/${id}?session_id=${sess}`, {
-      method: "DELETE",
-      headers
-    });
-    if (res.status === 401) {
-      alert("Unauthorized: Invalid Admin Key");
-    } else if (res.status === 403) {
-      alert("Forbidden: You do not own this brand record");
-    }
+    const res = await fetch(`${API}/brands/${id}?session_id=${sess}`, { method: "DELETE" });
+    if (res.status === 403) alert("You can only delete brands you added.");
     setDeleting(null);
     load();
   }
@@ -196,52 +163,20 @@ export default function Home() {
   const avg = allAudited.length ? allAudited.reduce((s, b) => s + (b.visibility_pct ?? 0), 0) / allAudited.length : null;
   const best = sortedAudited[0] ?? null;
   const pending = filtered.filter(b => b.visibility_pct === null);
-  const handleSecretAdminTrigger = () => {
-    const key = prompt("Enter Admin Access Key to authenticate:");
-    if (key) {
-      setAdminKey(key);
-      setAdminMode(true);
-      reloadPage();
-    }
-  };
 
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
       {/* Top nav */}
       <header className="border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md" style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.95)" }}>
         <div className="flex items-center gap-3">
-          <div
-            onDoubleClick={handleSecretAdminTrigger}
-            data-testid="secret-logo-trigger"
-            className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--accent)] shadow-md shadow-[var(--accent-glow)] cursor-default select-none"
-          >
-            <Sparkles className="w-4 h-4 text-white animate-pulse" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--accent)] shadow-md shadow-[var(--accent-glow)] select-none">
+            <Sparkles className="w-4 h-4 text-white" />
           </div>
           <span className="font-bold text-sm text-slate-900 tracking-tight">Aura AI — Visibility Engine</span>
         </div>
-        <div className="flex items-center gap-4">
-          {admin ? (
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded border border-red-200 bg-red-50 text-red-600 select-none">
-                Admin Panel
-              </span>
-              <button
-                onClick={() => {
-                  setAdminMode(false);
-                  setAdminMode(false);
-                  reloadPage();
-                }}
-                className="btn-ghost py-1 px-2.5 text-xs font-bold"
-              >
-                Sign Out
-              </button>
-            </div>
-          ) : (
-            <span className="text-slate-500 text-xs font-semibold tabular border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-xl select-none">
-              {2 - auditCount} / 2 Audits Available
-            </span>
-          )}
-        </div>
+        <span className="text-slate-500 text-xs font-semibold tabular border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-xl select-none">
+          {2 - auditCount} / 2 Audits Available
+        </span>
       </header>
 
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-5">
@@ -457,12 +392,10 @@ export default function Home() {
               <h2 className="text-slate-900 font-bold text-sm mb-0.5">Audit a Brand</h2>
               <p className="text-slate-400 text-xs mb-4">Add a brand name to measure its AI visibility.</p>
               
-              {limitReached && !admin && (
+              {limitReached && (
                 <div className="border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold p-4 rounded-xl flex flex-col gap-1 mb-4 leading-relaxed">
-                  <span className="font-extrabold uppercase text-[10px] tracking-wider text-[var(--accent)]">
-                    Audit Limit Reached
-                  </span>
-                  You have run {auditCount}/2 public audits. Guest runs are capped to prevent API exhaustion. Authenticate as Admin to run more audits.
+                  <span className="font-extrabold uppercase text-[10px] tracking-wider">Audit Limit Reached</span>
+                  You've used both free audits for today. Try again later.
                 </div>
               )}
 
@@ -474,15 +407,15 @@ export default function Home() {
                     className="w-full input-field py-2.5 text-sm"
                     aria-label="Brand name"
                     required
-                    disabled={limitReached && !admin}
+                    disabled={limitReached}
                   />
                 </div>
 
-<button type="submit" disabled={adding || !name.trim() || (limitReached && !admin)}
+                <button type="submit" disabled={adding || !name.trim() || limitReached}
                   className="w-full btn-primary flex items-center justify-center gap-1.5 py-2.5"
                 >
                   <Plus className="w-4 h-4 text-white" />
-                  {adding ? "Initializing Audit..." : limitReached && !admin ? "Limit Reached" : "Add & Run Audit"}
+                  {adding ? "Running Audit..." : limitReached ? "Limit Reached" : "Add & Run Audit"}
                 </button>
               </form>
             </div>
