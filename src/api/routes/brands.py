@@ -21,6 +21,13 @@ class BrandCreate(BaseModel):
             raise ValueError("Brand name cannot be empty")
         return v.strip()
 
+    @field_validator("session_id")
+    @classmethod
+    def session_id_not_reserved(cls, v: str) -> str:
+        if v in ("example", "admin"):
+            raise ValueError("Reserved session_id")
+        return v
+
 
 # ── Static routes FIRST (must come before /{brand_id} to avoid ambiguity) ──
 
@@ -28,13 +35,16 @@ class BrandCreate(BaseModel):
 async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)):
     """All brands with latest insight. Single DB pass — no N+1."""
     async with SessionLocal() as session:
+        expected_key = os.environ.get("ADMIN_KEY")
+        is_admin = bool(expected_key and x_admin_key == expected_key and session_id == "admin")
+
         stmt = select(Brand)
-        if session_id and session_id != "admin":
-            stmt = stmt.where((Brand.session_id == session_id) | (Brand.session_id == 'example'))
-        elif session_id == "admin":
-            expected_key = os.environ.get("ADMIN_KEY")
-            if x_admin_key != expected_key:
-                raise HTTPException(status_code=401, detail="Invalid Admin Key")
+        if is_admin:
+            pass  # admin sees all
+        elif session_id and session_id != "admin":
+            stmt = stmt.where((Brand.session_id == session_id) | (Brand.session_id == "example"))
+        else:
+            stmt = stmt.where(Brand.session_id == "example")  # unauthenticated: example only
         brands = (await session.scalars(stmt)).all()
         brand_ids = [b.id for b in brands]
 
@@ -65,7 +75,7 @@ async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)
                 "trend": trend,
                 "probe_count": latest.probe_count if latest else None,
                 "last_run": latest.created_at.isoformat() if latest else None,
-                "session_id": brand.session_id,
+                "is_example": brand.session_id == "example",
             })
 
         audited = sorted([r for r in result if r["visibility_pct"] is not None],
@@ -83,13 +93,16 @@ async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)
 @router.get("")
 async def list_brands(session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
+        expected_key = os.environ.get("ADMIN_KEY")
+        is_admin = bool(expected_key and x_admin_key == expected_key and session_id == "admin")
+
         stmt = select(Brand)
-        if session_id and session_id != "admin":
-            stmt = stmt.where((Brand.session_id == session_id) | (Brand.session_id == 'example'))
-        elif session_id == "admin":
-            expected_key = os.environ.get("ADMIN_KEY")
-            if x_admin_key != expected_key:
-                raise HTTPException(status_code=401, detail="Invalid Admin Key")
+        if is_admin:
+            pass
+        elif session_id and session_id != "admin":
+            stmt = stmt.where((Brand.session_id == session_id) | (Brand.session_id == "example"))
+        else:
+            stmt = stmt.where(Brand.session_id == "example")
         brands = (await session.scalars(stmt)).all()
         return [{"id": b.id, "name": b.name, "domain": b.domain} for b in brands]
 

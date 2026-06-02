@@ -48,7 +48,7 @@ type BrandRow = {
   probe_count: number;
   last_run: string | null;
   rank?: number;
-  session_id?: string | null;
+  is_example?: boolean;
 };
 
 
@@ -163,7 +163,7 @@ export default function Home() {
 
   async function deleteBrand(id: number) {
     const targetBrand = brands.find(b => b.id === id);
-    if (targetBrand?.session_id === "example") {
+    if (targetBrand?.is_example) {
       alert("Forbidden: Preloaded example brands cannot be deleted.");
       return;
     }
@@ -409,7 +409,7 @@ export default function Home() {
                         <div className="col-span-2 text-right flex justify-end"><TrendPill v={b.trend} /></div>
                         <div className="col-span-2 text-right flex items-center justify-end gap-1">
                           <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "—"}</span>
-                          {b.session_id === "example" ? (
+                          {b.is_example ? (
                             <span title="Example brands are read-only" className="ml-1 w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
                               <Trash2 className="w-3.5 h-3.5 text-slate-200" />
                             </span>

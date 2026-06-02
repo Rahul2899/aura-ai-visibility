@@ -63,11 +63,8 @@ async def start_audit(
     x_admin_key: str = Header(None)
 ):
     # 1. Enforce IP-based rate limiting for non-admin requests
-    is_admin = False
-    if session_id == "admin":
-        expected_key = os.environ.get("ADMIN_KEY")
-        if x_admin_key == expected_key:
-            is_admin = True
+    expected_key = os.environ.get("ADMIN_KEY")
+    is_admin = bool(expected_key and session_id == "admin" and x_admin_key == expected_key)
 
     if not is_admin:
         ip = get_client_ip(request)

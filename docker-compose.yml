@@ -5,8 +5,9 @@ services:
       POSTGRES_USER: peec
       POSTGRES_PASSWORD: peec
       POSTGRES_DB: peec
-    ports:
-      - "5432:5432"
+    # Port 5432 intentionally NOT exposed externally
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -22,8 +23,9 @@ services:
     environment:
       # Overrides DATABASE_URL from .env to use the db service hostname
       DATABASE_URL: postgresql+asyncpg://peec:peec@db:5432/peec
-    ports:
-      - "8000:8000"
+    # Port 8000 intentionally NOT exposed externally — all traffic must go through nginx
+    expose:
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
