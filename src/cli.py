@@ -14,7 +14,7 @@ from src.pipeline.scorer import score_brand
 from src.eval.evaluate import run_eval as _run_eval
 from src.agents.orchestrator import orchestrate
 
-app = typer.Typer(help="Peec Clone — AI visibility analytics CLI")
+app = typer.Typer(help="Aura AI — Brand visibility analytics CLI")
 
 
 @app.command()

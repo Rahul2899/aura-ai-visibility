@@ -1,10 +1,25 @@
+# Secrets
 .env
+*.pem
+*.key
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Claude Code internals
 .agents/
 .claude/
 .remember/
 skills-lock.json
+CLAUDE.md
 2026-*.txt
+
+# Dev notes (not for public repo)
+docs/journey/
+
+# Personio legacy prompts
+prompts/seeds/personio.txt
 
 __pycache__/
 *.pyc
