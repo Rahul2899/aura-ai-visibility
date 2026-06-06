@@ -248,6 +248,43 @@ async def get_model_bias(brand_id: int):
         return {"brand": brand.name, "models": models}
 
 
+@router.get("/{brand_id}/probe-detail")
+async def get_probe_detail(brand_id: int):
+    """All probes for the latest audit with per-model hit rates."""
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(404, "Brand not found")
+
+        latest_insight = await session.scalar(
+            select(Insight).where(Insight.brand_id == brand_id)
+            .order_by(Insight.created_at.desc())
+        )
+        if not latest_insight:
+            return {"probes": [], "audit_date": None}
+
+        probes = (await session.scalars(
+            select(ProbePerformance)
+            .where(ProbePerformance.brand_id == brand_id, ProbePerformance.run_count >= 1)
+            .order_by(ProbePerformance.last_used.desc())
+            .limit(10)
+        )).all()
+
+        return {
+            "probes": [
+                {
+                    "question": p.prompt_text,
+                    "hit_rate": round(p.hit_count / p.run_count * 100, 1) if p.run_count else 0,
+                    "mentioned": p.hit_count,
+                    "total_models": p.run_count,
+                    "result": "strong" if p.hit_count / max(p.run_count, 1) >= 0.6 else "weak",
+                }
+                for p in probes
+            ],
+            "audit_date": latest_insight.created_at.isoformat(),
+        }
+
+
 @router.get("/{brand_id}/probe-performance")
 async def get_probe_performance(brand_id: int):
     async with SessionLocal() as session:

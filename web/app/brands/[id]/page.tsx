@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AuditButton from "./AuditButton";
 import DeleteInsightButton from "./DeleteInsightButton";
+import ProbeDetail from "./ProbeDetail";
 import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
@@ -17,14 +18,15 @@ import {
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function getData(id: string) {
-  const [brands, insights, modelBias, probePerf, compare] = await Promise.all([
+  const [brands, insights, modelBias, probePerf, compare, probeDetail] = await Promise.all([
     fetch(`${API}/brands`, { cache: "no-store" }).then(r => r.json()).catch(() => []),
     fetch(`${API}/brands/${id}/insights`, { cache: "no-store" }).then(r => r.json()).catch(() => []),
     fetch(`${API}/brands/${id}/model-bias`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ models: [] })),
     fetch(`${API}/brands/${id}/probe-performance`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ top: [], bottom: [] })),
     fetch(`${API}/brands/compare`, { cache: "no-store" }).then(r => r.json()).catch(() => []),
+    fetch(`${API}/brands/${id}/probe-detail`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ probes: [], audit_date: null })),
   ]);
-  return { brands, insights, modelBias, probePerf, compare };
+  return { brands, insights, modelBias, probePerf, compare, probeDetail };
 }
 
 export default async function BrandPage({
@@ -36,7 +38,7 @@ export default async function BrandPage({
 }) {
   const { id } = await params;
   const { autostart } = await searchParams;
-  const { brands, insights, modelBias, probePerf, compare } = await getData(id);
+  const { brands, insights, modelBias, probePerf, compare, probeDetail } = await getData(id);
 
   const brand = brands.find((b: { id: number }) => b.id === Number(id));
   if (!brand) notFound();
@@ -215,6 +217,11 @@ export default async function BrandPage({
                 <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-5">Visibility Over Time</p>
                 <VisibilityChart data={chartData} />
               </div>
+            )}
+
+            {/* Probe transparency — what questions were asked */}
+            {probeDetail.probes.length > 0 && (
+              <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date} />
             )}
 
             {/* Historical runs matrix */}
