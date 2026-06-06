@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Aura AI — Visibility Engine",
-  description: "See how visible your brand is across AI models like ChatGPT, Claude, and Gemini. Real-time visibility scores for HR tech and SaaS brands.",
+  description: "See how visible your brand is across AI models like ChatGPT, Claude, and Gemini. Real-time visibility scores for brands in any industry.",
   openGraph: {
     title: "Aura AI — Visibility Engine",
     description: "See how visible your brand is across AI models. Real-time scores for ChatGPT, Claude, Gemini and more.",

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { friendlyName, providerKey } from "../lib/models";
-import { getSessionId } from "../lib/session";
+import { getSessionId, getAdminKey } from "../lib/session";
 import {
   ArrowLeft,
   Play,
@@ -79,7 +79,7 @@ export default function ComparePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: newName.trim(),
-        domain: newName.trim().toLowerCase().replace(/\s+/g, "") + ".com",
+        domain: "",
         session_id: getSessionId()
       }),
     });
@@ -93,11 +93,15 @@ export default function ComparePage() {
     if (selected.length === 0 || allBrands.length === 0) return;
     setLoading(true);
     try {
+      const sess = getSessionId();
+      const hdrs: Record<string, string> = {};
+      if (sess === "admin") hdrs["X-Admin-Key"] = getAdminKey();
+      const qs = `session_id=${encodeURIComponent(sess)}`;
       const results = await Promise.all(selected.map(async (id) => {
         const brand = allBrands.find(b => b.id === id);
         const [insights, bias] = await Promise.all([
-          fetch(`${API}/brands/${id}/insights`).then(r => r.json()).catch(() => []),
-          fetch(`${API}/brands/${id}/model-bias`).then(r => r.json()).catch(() => ({ models: [] })),
+          fetch(`${API}/brands/${id}/insights?${qs}`, { headers: hdrs }).then(r => r.json()).catch(() => []),
+          fetch(`${API}/brands/${id}/model-bias?${qs}`, { headers: hdrs }).then(r => r.json()).catch(() => ({ models: [] })),
         ]);
         return {
           id,
@@ -124,7 +128,10 @@ export default function ComparePage() {
     const jobMap: Record<number, string> = {};
     await Promise.all(selected.map(async (brandId) => {
       try {
-        const res = await fetch(`${API}/audit/brands/${brandId}`, { method: "POST" });
+        const sess = getSessionId();
+        const hdrs: Record<string, string> = {};
+        if (sess === "admin") hdrs["X-Admin-Key"] = getAdminKey();
+        const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, { method: "POST", headers: hdrs });
         if (!res.ok) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: `HTTP ${res.status}` } })); return; }
         const { job_id } = await res.json();
         if (!job_id) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: "No job ID returned" } })); return; }
@@ -571,7 +578,7 @@ export default function ComparePage() {
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-2">What does AI visibility actually mean?</h3>
               <p className="text-slate-400 text-xs leading-relaxed font-semibold">
-                When someone asks an AI "what HR software should I use?", does your brand appear in the answer? AI visibility measures this — across every AI model and ~10 different question angles. 55% means your brand appears in 55% of those AI responses. The goal: be the default recommendation.
+                When someone asks an AI for a product recommendation in your category, does your brand appear? AI visibility measures this across every model and ~10 question angles. 55% means your brand appears in 55% of those responses.
               </p>
             </div>
           </div>

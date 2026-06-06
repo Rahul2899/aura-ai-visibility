@@ -32,12 +32,10 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./web
-    # NEXT_PUBLIC_API_URL is baked at build time — set to your EC2 IP or domain before running
-    # docker compose build, or pass it as a build arg.
-    # Default here works for local testing only.
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     restart: unless-stopped
 
   nginx:

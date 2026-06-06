@@ -107,7 +107,7 @@ export default function Home() {
         setLimitReached(d.limit_reached);
         setAuditCount(d.count);
       }
-      if (industriesRes.ok) setIndustries(await industriesRes.json());
+      if (industriesRes.ok) { const ind = await industriesRes.json(); setIndustries(Array.isArray(ind) ? ind : []); }
     } catch (e) {
       console.error(e);
     } finally {
@@ -123,10 +123,6 @@ export default function Home() {
   async function addBrand(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    if (limitReached) {
-      alert("You've used both free audits. Come back later or try from a different network.");
-      return;
-    }
     setAdding(true);
     try {
       const res = await fetch(`${API}/brands`, {
@@ -232,7 +228,7 @@ export default function Home() {
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
                   <p className="text-slate-500 text-xs leading-relaxed font-semibold">
-                    Aura AI uses AWS Bedrock to probe search assistant models (Nova, Claude, Llama) with hundreds of contextual queries to check if your brand is recommended.
+                    Aura AI uses AWS Bedrock to probe search assistant models (Nova, Claude, Llama) with ~10 industry-specific probe questions to check if your brand is recommended.
                   </p>
                 </div>
 
@@ -255,37 +251,8 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Simulated preview graph widget */}
-                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">Visual Score Tracking Preview</p>
-                      <p className="text-[10px] text-slate-400 font-semibold">Example brand performance metrics across models</p>
-                    </div>
-                    <span className="text-emerald-700 text-xs font-bold tabular bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Interactive Mock</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {[
-                      { name: "Anthropic Claude 3.5 Sonnet", pct: 78, color: "var(--green)" },
-                      { name: "Meta Llama 3.3 70B", pct: 55, color: "var(--amber)" },
-                      { name: "Amazon Nova Pro", pct: 20, color: "var(--red)" }
-                    ].map(mock => (
-                      <div key={mock.name} className="space-y-1.5">
-                        <div className="flex justify-between text-[11px] font-semibold text-slate-500">
-                          <span>{mock.name}</span>
-                          <span className="tabular font-extrabold" style={{ color: mock.color }}>{mock.pct}% Visibility</span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${mock.pct}%`, backgroundColor: mock.color }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
                 <div className="text-center text-slate-500 text-xs font-semibold pt-1">
-                  Ready to test? Add your brand details in the <span className="text-sky-700 font-bold">Track New Brand</span> panel to trigger your first run.
+                  Ready to test? Add your brand details in the <span className="text-sky-700 font-bold">Audit a Brand</span> panel to trigger your first run.
                 </div>
               </div>
             ) : (
@@ -426,7 +393,6 @@ export default function Home() {
                     className="w-full input-field py-2.5 text-sm"
                     aria-label="Brand name"
                     required
-                    disabled={limitReached}
                     autoComplete="off"
                   />
                 </div>
@@ -439,7 +405,6 @@ export default function Home() {
                     placeholder="e.g. salesforce.com"
                     className="w-full input-field py-2.5 text-sm"
                     aria-label="Brand domain"
-                    disabled={limitReached}
                     autoComplete="off"
                   />
                 </div>
@@ -453,7 +418,6 @@ export default function Home() {
                       id="brand-industry"
                       value={industry}
                       onChange={e => setIndustry(e.target.value)}
-                      disabled={limitReached}
                       className="w-full input-field py-2.5 text-sm appearance-none pr-8"
                     >
                       <option value="">Select industry…</option>

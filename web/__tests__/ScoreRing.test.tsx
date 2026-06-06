@@ -47,7 +47,7 @@ describe("ScoreRing Component", () => {
     render(<ScoreRing pct={50} />); // milestone is 60
     act(() => { jest.advanceTimersByTime(1000); });
 
-    expect(screen.getByText(/Next: Good \(60%\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Next: Strong \(60%\)/)).toBeInTheDocument();
     expect(screen.getByText(/10% away/)).toBeInTheDocument();
   });
 });

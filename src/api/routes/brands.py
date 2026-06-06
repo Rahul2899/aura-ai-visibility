@@ -2,12 +2,12 @@ import os
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, delete as sql_delete
+from src.api.auth import is_admin, require_read, require_owner_or_admin
 from src.db import SessionLocal
 from src.models import Brand, Prompt, Run, Mention, Insight, ProbePerformance
 from src.pipeline.scorer import score_brand
 
 router = APIRouter(prefix="/brands")
-
 
 INDUSTRIES = [
     "HR Tech / Recruiting",
@@ -44,39 +44,23 @@ class BrandCreate(BaseModel):
         return v
 
 
-# ── Static routes FIRST (must come before /{brand_id} to avoid ambiguity) ──
+def _brand_scope(stmt, session_id, x_admin_key):
+    if is_admin(session_id, x_admin_key):
+        return stmt
+    if session_id and session_id != "admin":
+        return stmt.where((Brand.session_id == session_id) | (Brand.session_id == "example"))
+    return stmt.where(Brand.session_id == "example")
+
 
 @router.get("/industries")
 async def list_industries():
-    """Return the fixed list of industry categories."""
     return INDUSTRIES
-
-
-@router.get("/suggest-domain")
-async def suggest_domain(name: str):
-    """Generate domain suggestions for a brand name."""
-    slug = name.strip().lower().replace(" ", "").replace(".", "")
-    if not slug:
-        return {"suggestions": []}
-    tlds = [".com", ".io", ".ai", ".co", ".app"]
-    return {"suggestions": [f"{slug}{tld}" for tld in tlds]}
 
 
 @router.get("/compare")
 async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)):
-    """All brands with latest insight. Single DB pass — no N+1."""
     async with SessionLocal() as session:
-        expected_key = os.environ.get("ADMIN_KEY")
-        is_admin = bool(expected_key and x_admin_key == expected_key and session_id == "admin")
-
-        stmt = select(Brand)
-        if is_admin:
-            pass  # admin sees all
-        elif session_id and session_id != "admin":
-            stmt = stmt.where((Brand.session_id == session_id) | (Brand.session_id == "example"))
-        else:
-            stmt = stmt.where(Brand.session_id == "example")  # unauthenticated: example only
-        brands = (await session.scalars(stmt)).all()
+        brands = (await session.scalars(_brand_scope(select(Brand), session_id, x_admin_key))).all()
         brand_ids = [b.id for b in brands]
 
         insights_raw = (await session.scalars(
@@ -120,23 +104,12 @@ async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)
         return audited + pending
 
 
-# ── Collection routes ──
-
 @router.get("")
 async def list_brands(session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
-        expected_key = os.environ.get("ADMIN_KEY")
-        is_admin = bool(expected_key and x_admin_key == expected_key and session_id == "admin")
-
-        stmt = select(Brand)
-        if is_admin:
-            pass
-        elif session_id and session_id != "admin":
-            stmt = stmt.where((Brand.session_id == session_id) | (Brand.session_id == "example"))
-        else:
-            stmt = stmt.where(Brand.session_id == "example")
-        brands = (await session.scalars(stmt)).all()
-        return [{"id": b.id, "name": b.name, "domain": b.domain, "industry": b.industry} for b in brands]
+        brands = (await session.scalars(_brand_scope(select(Brand), session_id, x_admin_key))).all()
+        return [{"id": b.id, "name": b.name, "domain": b.domain, "industry": b.industry,
+                 "is_example": b.session_id == "example"} for b in brands]
 
 
 @router.post("", status_code=201)
@@ -147,38 +120,44 @@ async def create_brand(body: BrandCreate):
             domain=body.domain or None,
             industry=body.industry or None,
             competitors=[],
-            session_id=body.session_id if body.session_id else None
+            session_id=body.session_id if body.session_id else None,
         )
         session.add(brand)
         await session.commit()
+        await session.refresh(brand)
         return {"id": brand.id, "name": brand.name}
 
 
-# ── Brand-specific routes ──
+@router.get("/{brand_id}")
+async def get_brand(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
+        return {
+            "id": brand.id,
+            "name": brand.name,
+            "domain": brand.domain,
+            "industry": brand.industry,
+            "session_id": brand.session_id,
+            "is_example": brand.session_id == "example",
+        }
+
 
 @router.delete("/{brand_id}", status_code=204)
 async def delete_brand(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
-    """Delete brand and all related data in correct FK order."""
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
         if brand.session_id == "example":
             raise HTTPException(status_code=403, detail="Cannot delete preloaded example brands")
+        require_owner_or_admin(brand, session_id, x_admin_key)
 
-        # Require positive authorization — either own it or be admin.
-        # Do NOT skip this check when session_id is None (that was the previous bug).
-        expected_admin_key = os.environ.get("ADMIN_KEY")
-        is_admin = bool(expected_admin_key and x_admin_key == expected_admin_key)
-        is_owner = session_id is not None and session_id == brand.session_id
-        if not is_admin and not is_owner:
-            raise HTTPException(status_code=403, detail="Not authorized to delete this brand")
-
-        # 1. Delete Insights and ProbePerformance (direct brand FK)
         await session.execute(sql_delete(Insight).where(Insight.brand_id == brand_id))
         await session.execute(sql_delete(ProbePerformance).where(ProbePerformance.brand_id == brand_id))
 
-        # 2. Walk Prompt → Run → Mention chain
         prompt_ids = list(await session.scalars(select(Prompt.id).where(Prompt.brand_id == brand_id)))
         if prompt_ids:
             run_ids = list(await session.scalars(select(Run.id).where(Run.prompt_id.in_(prompt_ids))))
@@ -192,11 +171,12 @@ async def delete_brand(brand_id: int, session_id: str = None, x_admin_key: str =
 
 
 @router.get("/{brand_id}/report")
-async def get_report(brand_id: int):
+async def get_report(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
         score = await score_brand(session, brand_id)
         return {
             "brand": brand.name,
@@ -208,11 +188,12 @@ async def get_report(brand_id: int):
 
 
 @router.get("/{brand_id}/insights")
-async def get_insights(brand_id: int):
+async def get_insights(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
         insights = (await session.scalars(
             select(Insight).where(Insight.brand_id == brand_id).order_by(Insight.created_at.desc())
         )).all()
@@ -233,40 +214,36 @@ async def get_insights(brand_id: int):
 
 @router.delete("/{brand_id}/insights/{insight_id}", status_code=204)
 async def delete_insight(
-    brand_id: int, 
-    insight_id: int, 
-    session_id: str = None, 
-    x_admin_key: str = Header(None)
+    brand_id: int,
+    insight_id: int,
+    session_id: str = None,
+    x_admin_key: str = Header(None),
 ):
     async with SessionLocal() as session:
         insight = await session.get(Insight, insight_id)
         if not insight or insight.brand_id != brand_id:
             raise HTTPException(404, "Insight not found")
-        
+
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
 
-        expected_admin_key = os.environ.get("ADMIN_KEY")
-        is_admin = bool(expected_admin_key and x_admin_key == expected_admin_key)
-        is_owner = session_id is not None and session_id == brand.session_id
-
-        if brand.session_id == "example" and not is_admin:
+        if brand.session_id == "example" and not is_admin(session_id, x_admin_key):
             raise HTTPException(status_code=403, detail="Cannot delete insights of preloaded example brands")
-
-        if not is_admin and not is_owner:
-            raise HTTPException(status_code=403, detail="Forbidden: You do not own this brand record")
+        require_owner_or_admin(brand, session_id, x_admin_key)
 
         await session.delete(insight)
         await session.commit()
 
 
 @router.get("/{brand_id}/model-bias")
-async def get_model_bias(brand_id: int):
+async def get_model_bias(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
+
         latest = await session.scalar(
             select(Insight)
             .where(Insight.brand_id == brand_id, Insight.model_breakdown.isnot(None))
@@ -275,9 +252,7 @@ async def get_model_bias(brand_id: int):
         if not latest or not latest.model_breakdown:
             return {"brand": brand.name, "models": []}
 
-        prompt_ids = list(await session.scalars(
-            select(Prompt.id).where(Prompt.brand_id == brand_id)
-        ))
+        prompt_ids = list(await session.scalars(select(Prompt.id).where(Prompt.brand_id == brand_id)))
         latency_by_model: dict[str, list[int]] = {}
         if prompt_ids:
             runs = (await session.scalars(
@@ -295,12 +270,12 @@ async def get_model_bias(brand_id: int):
 
 
 @router.get("/{brand_id}/dark-matter")
-async def get_dark_matter(brand_id: int):
-    """Probes where the brand was never mentioned — pure opportunity queries."""
+async def get_dark_matter(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
 
         probes = (await session.scalars(
             select(ProbePerformance)
@@ -320,12 +295,12 @@ async def get_dark_matter(brand_id: int):
 
 
 @router.get("/{brand_id}/probe-detail")
-async def get_probe_detail(brand_id: int):
-    """All probes for the latest audit with per-model hit rates."""
+async def get_probe_detail(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
 
         latest_insight = await session.scalar(
             select(Insight).where(Insight.brand_id == brand_id)
@@ -357,21 +332,28 @@ async def get_probe_detail(brand_id: int):
 
 
 @router.get("/{brand_id}/probe-performance")
-async def get_probe_performance(brand_id: int):
+async def get_probe_performance(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
+
         probes = (await session.scalars(
             select(ProbePerformance)
             .where(ProbePerformance.brand_id == brand_id, ProbePerformance.run_count >= 1)
         )).all()
         if not probes:
             return {"top": [], "bottom": []}
-        def hit_rate(p): return p.hit_count / p.run_count
+
+        def hit_rate(p):
+            return p.hit_count / p.run_count
+
         ranked = sorted(probes, key=hit_rate, reverse=True)
         strong = [p for p in ranked if hit_rate(p) >= 0.6][:3]
         weak = [p for p in ranked if hit_rate(p) < 0.6][:3]
+
         def fmt(p):
             return {"prompt": p.prompt_text, "hit_rate": round(hit_rate(p) * 100, 1)}
+
         return {"top": [fmt(p) for p in strong], "bottom": [fmt(p) for p in weak]}
