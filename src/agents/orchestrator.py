@@ -125,14 +125,15 @@ MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") fo
 SYSTEM_PROMPT = """You are an AI brand visibility analyst. AI models learn from web content — your job is to measure how visible a brand is in AI responses AND tell the marketing team how to improve it.
 
 Steps:
-1. Call get_brand_context. The response includes name, domain, industry, and competitors.
-2. Use the brand's industry to write 8-10 probe questions that match how REAL BUYERS in that sector search for solutions. If industry is "unknown", infer it from the brand name and domain. Do NOT ask generic "Tell me about brand X" queries. Write realistic search-intent prompts:
+1. Call get_brand_context. The response includes name, domain, industry, competitors, and optionally web_context (live search snippets about the brand).
+2. If web_context is present, read it carefully — extract real product features, pricing model, target customers, and differentiators. Use these specifics to write probe questions that reference actual capabilities (e.g. "Which ATS supports async video interviews and HRIS sync?" not "What is the best ATS?").
+3. Use the brand's industry to write 8-10 probe questions that match how REAL BUYERS in that sector search for solutions. If industry is "unknown", infer it from the brand name and domain. Do NOT ask generic "Tell me about brand X" queries. Write realistic search-intent prompts:
    - Brand-Direct: Questions seeking specific technical, pricing, integration, or compliance details (e.g., "Does [Brand] support HIPAA compliance?" or "Can I connect [Brand] to Salesforce?").
    - Category Recommendation: Natural language recommendation queries detailing scale, industry, and pain point (e.g., "What is the best expense management software for a B2B SaaS startup with 50 employees?").
    - Feature-Specific: Prompts looking for solutions with specific capabilities (e.g., "Which virtual card systems allow instant CSV exports and real-time spending controls?").
    - Competitor Face-Off: Direct side-by-side comparison requests matching the brand against retrieved competitors (e.g., "Compare [Brand] vs [Competitor1] on ease-of-use, customer support, and API coverage").
    - Regional/Market: Regionally-specific recommendation queries relevant to the brand's headquarter country or primary customer markets.
-3. Call finish with structured findings.
+4. Call finish with structured findings.
 
 WRITE TIGHT. No filler, no hedging, no marketing speak. Every output is scannable in 2 seconds.
 
@@ -311,10 +312,14 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
     return context
 
 
-async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False) -> Insight | None:
+async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None) -> Insight | None:
     """Run the Hermes orchestration loop for a brand. Returns saved Insight or None on dry_run."""
     bedrock = _bedrock_client()
-    messages = [{"role": "user", "content": [{"text": f"Audit brand_id={brand_id}. Start with get_brand_context."}]}]
+    custom_block = ""
+    if custom_questions:
+        formatted = "\n".join(f"- {q}" for q in custom_questions if q.strip())
+        custom_block = f"\n\nThe user also wants these specific questions tested (run them FIRST before generating your own):\n{formatted}"
+    messages = [{"role": "user", "content": [{"text": f"Audit brand_id={brand_id}. Start with get_brand_context.{custom_block}"}]}]
     tool_calls_log = []
     probe_count = 0
     model_hits: dict[str, list[bool]] = {}  # {model: [mentioned_per_probe]}

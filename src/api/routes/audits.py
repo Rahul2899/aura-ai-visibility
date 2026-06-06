@@ -2,11 +2,16 @@ import os
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from src.api.auth import is_admin, limit_key, require_owner_or_admin
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
 from src.agents.orchestrator import orchestrate
 from src.models import AuditLimit, Brand
+
+
+class AuditRequest(BaseModel):
+    custom_questions: list[str] = []
 
 router = APIRouter(prefix="/audit")
 
@@ -21,11 +26,11 @@ def get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def _run_audit_job(job_id: str, brand_id: int):
+async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None):
     _jobs[job_id]["status"] = "running"
     try:
         async with SessionLocal() as session:
-            insight = await orchestrate(session, brand_id)
+            insight = await orchestrate(session, brand_id, custom_questions=custom_questions)
         if insight:
             _jobs[job_id].update({
                 "status": "completed",
@@ -56,6 +61,7 @@ async def start_audit(
     brand_id: int,
     background_tasks: BackgroundTasks,
     request: Request,
+    body: AuditRequest = None,
     session_id: str = None,
     x_admin_key: str = Header(None),
 ):
@@ -94,19 +100,21 @@ async def start_audit(
             headers={"Retry-After": "120"},
         )
 
+    custom_questions = [q.strip() for q in (body.custom_questions if body else []) if q.strip()][:5]
+
     global _job_counter
     _job_counter += 1
     job_id = f"job_{_job_counter}"
     _jobs[job_id] = {"status": "queued", "brand_id": brand_id}
 
-    async def _run_with_semaphore(jid: str, bid: int):
+    async def _run_with_semaphore(jid: str, bid: int, cq: list[str]):
         async with sem:
-            await _run_audit_job(jid, bid)
+            await _run_audit_job(jid, bid, cq)
 
     if sem is not None:
-        background_tasks.add_task(_run_with_semaphore, job_id, brand_id)
+        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions)
     else:
-        background_tasks.add_task(_run_audit_job, job_id, brand_id)
+        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions)
 
     return {"job_id": job_id, "status": "queued"}
 

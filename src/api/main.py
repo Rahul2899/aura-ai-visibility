@@ -1,4 +1,5 @@
 import os
+import warnings
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +10,22 @@ from src.api.semaphore import init_audit_semaphore
 from src.api.routes.brands import router as brands_router
 from src.api.routes.audits import router as audits_router
 
+_REQUIRED_VARS = ["DATABASE_URL", "ADMIN_KEY"]
+_OPTIONAL_WARN = ["AWS_ACCESS_KEY_ID", "OPENROUTER_API_KEY", "TAVILY_API_KEY"]
+
+
+def _check_env():
+    missing = [v for v in _REQUIRED_VARS if not os.environ.get(v)]
+    if missing:
+        raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+    for v in _OPTIONAL_WARN:
+        if not os.environ.get(v):
+            warnings.warn(f"Optional env var {v} not set — related features will be degraded", stacklevel=2)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _check_env()
     init_audit_semaphore(max_concurrent=3)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

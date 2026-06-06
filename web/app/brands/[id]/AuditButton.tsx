@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { reloadPage } from "../../lib/navigation";
 import { getSessionId, getAdminKey } from "../../lib/session";
-import { Play, Loader2, CheckCircle2, AlertCircle, Terminal } from "lucide-react";
+import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -18,6 +18,8 @@ type JobState = {
 export default function AuditButton({ brandId }: { brandId: number }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customText, setCustomText] = useState("");
   const started = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -25,8 +27,16 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
+  function parseCustomQuestions(): string[] {
+    return customText
+      .split("\n")
+      .map(q => q.trim())
+      .filter(q => q.length > 5)
+      .slice(0, 5);
+  }
+
   async function startAudit() {
-    if (started.current) return; // guard against double-fire
+    if (started.current) return;
     started.current = true;
     setJob({ status: "queued" });
     setLog(["Initializing audit session…"]);
@@ -37,9 +47,11 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       headers["X-Admin-Key"] = getAdminKey();
     }
 
+    const custom_questions = parseCustomQuestions();
     const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, {
       method: "POST",
       headers,
+      body: JSON.stringify({ custom_questions }),
     });
     if (res.status === 503) {
       const data = await res.json().catch(() => ({}));
@@ -100,8 +112,43 @@ export default function AuditButton({ brandId }: { brandId: number }) {
   const done = job?.status === "completed";
   const failed = job?.status === "failed";
 
+  const customQuestions = parseCustomQuestions();
+
   return (
-    <div className="flex flex-col items-end gap-3 relative">
+    <div className="flex flex-col items-end gap-2 relative">
+      {/* Custom questions panel */}
+      {!running && !done && (
+        <div className="flex flex-col items-end gap-2">
+          <button
+            onClick={() => setShowCustom(v => !v)}
+            className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold flex items-center gap-1 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+            Custom questions
+            <ChevronDown className={`w-3 h-3 transition-transform ${showCustom ? "rotate-180" : ""}`} />
+          </button>
+          {showCustom && (
+            <div className="w-72 rounded-xl border border-slate-200 bg-white shadow-lg p-3 space-y-2">
+              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                Add up to 5 questions to test (one per line)
+              </p>
+              <textarea
+                value={customText}
+                onChange={e => setCustomText(e.target.value)}
+                placeholder={"Does Ashby integrate with Greenhouse?\nWhich ATS supports async video interviews?"}
+                className="w-full text-xs text-slate-700 border border-slate-200 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-medium leading-relaxed"
+                rows={4}
+              />
+              {customQuestions.length > 0 && (
+                <p className="text-[10px] text-emerald-600 font-semibold">
+                  {customQuestions.length} question{customQuestions.length > 1 ? "s" : ""} will be tested first
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         onClick={startAudit}
         disabled={running}
