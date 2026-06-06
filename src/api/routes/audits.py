@@ -2,6 +2,8 @@ import asyncio
 import os
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
+from fastapi.responses import JSONResponse
+from src.api.main import get_audit_semaphore
 from src.db import SessionLocal
 from src.agents.orchestrator import orchestrate
 from src.models import AuditLimit, Brand
@@ -88,12 +90,34 @@ async def start_audit(
                 session.add(limit)
             await session.commit()
 
-    # 2. Queue audit execution
+    # 2. Check global concurrency cap before queuing
+    sem = get_audit_semaphore()
+    if sem is not None and sem.locked():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "too_busy",
+                "message": "Aura AI is processing too many audits right now. Please try again in 2-3 minutes.",
+                "retry_after_seconds": 120,
+            },
+            headers={"Retry-After": "120"},
+        )
+
+    # 3. Queue audit execution (acquires semaphore for the duration of the job)
     global _job_counter
     _job_counter += 1
     job_id = f"job_{_job_counter}"
     _jobs[job_id] = {"status": "queued", "brand_id": brand_id}
-    background_tasks.add_task(_run_audit_job, job_id, brand_id)
+
+    async def _run_with_semaphore(job_id: str, brand_id: int):
+        async with sem:
+            await _run_audit_job(job_id, brand_id)
+
+    if sem is not None:
+        background_tasks.add_task(_run_with_semaphore, job_id, brand_id)
+    else:
+        background_tasks.add_task(_run_audit_job, job_id, brand_id)
+
     return {"job_id": job_id, "status": "queued"}
 
 

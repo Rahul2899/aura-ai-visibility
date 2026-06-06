@@ -41,6 +41,12 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       method: "POST",
       headers,
     });
+    if (res.status === 503) {
+      const data = await res.json().catch(() => ({}));
+      setJob({ status: "failed", error: data.message ?? "Server is too busy. Please try again in a few minutes." });
+      started.current = false;
+      return;
+    }
     if (!res.ok) {
       setJob({ status: "failed", error: "Failed to start audit job." });
       started.current = false;
@@ -152,6 +158,13 @@ export default function AuditButton({ brandId }: { brandId: number }) {
               );
             })}
           </div>
+
+          {/* Too-busy notice */}
+          {failed && job?.error?.includes("busy") && (
+            <p className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Server is busy. Wait 2-3 minutes and try again.
+            </p>
+          )}
 
           {/* Progress bar with glowing details */}
           {running && (
