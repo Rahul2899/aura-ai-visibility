@@ -912,6 +912,84 @@ That's a product, a finding, and a business insight in one sentence. That's what
 
 ---
 
+---
+
+## Phase 7: Production Hardening (June 2026)
+
+After the initial EC2 deployment, the focus shifted from "does it work" to "does it hold up for real users." Seven concrete problems were identified and fixed.
+
+### Problem 1: Traffic Spikes Crash the App
+
+**Root cause:** No limit on concurrent audits. Each audit makes 10+ Bedrock API calls. Firing 4 audits simultaneously saturates the connection pool and everything times out.
+
+**Fix:** `asyncio.Semaphore(3)` initialized in FastAPI's lifespan, exposed via `get_audit_semaphore()`. The `start_audit` endpoint checks `sem.locked()` before queuing — if full, returns `503 {"error": "too_busy"}` with `Retry-After: 120`. The background task acquires the semaphore for the duration of the job. Frontend shows a clear amber "server is busy" message instead of a failed/crashed state.
+
+**Why 3:** Two audits already use most of Bedrock's default concurrency per model. Three leaves headroom for one more without queue starvation.
+
+### Problem 2: Users Don't Know What Questions Were Asked
+
+**Root cause:** The audit score (e.g., 55%) has no explanation visible to users. They don't know what "probe questions" even are.
+
+**Fix:** New endpoint `GET /brands/{id}/probe-detail` returns up to 10 questions with per-question hit rates, mentioned/total model counts, and a strong/weak classification. The frontend shows a collapsible card — collapsed by default so it doesn't dominate the page, but clearly labeled "The 10 Questions We Asked AI Models." Each row shows the question text, a check/cross icon, the mention count, and the percentage.
+
+**Why this matters:** Transparency builds trust. Users who see the exact questions understand why their score is what it is.
+
+### Problem 3: No Model Latency Visibility
+
+**Root cause:** `latency_ms` is stored in the `Run` table for every model call but never surfaced.
+
+**Fix:** The `model-bias` endpoint now queries `Run` grouped by model, computes the average, and returns `avg_latency_ms` alongside `visibility_pct`. `ModelGrid` renders a color-coded badge: Fast (<2s, green), Moderate (2-5s, amber), Slow (>5s, red) with the actual seconds shown.
+
+**Insight for enterprise users:** Model choice for internal AI tools should consider speed, not just accuracy. A model that's 3x slower adds up across thousands of queries.
+
+### Feature: Dark Matter Probes
+
+**The concept:** Some probe questions get answered by AI models with no brand mentioned at all. These are the highest-opportunity queries — the brand faces zero competition for AI mindshare on these topics.
+
+**Implementation:** `GET /brands/{id}/dark-matter` filters `ProbePerformance` records where `hit_count == 0` and `run_count >= 1`. Returns up to 5 zero-mention queries with the framing "getting mentioned here means zero competition." The frontend renders these as dashed border cards, visually distinct from the performance charts.
+
+### Feature: Brand Velocity Labels
+
+**The problem:** The existing trend indicator showed `+3.2%` vs last run, but users didn't know if that was good or bad movement.
+
+**Fix:** Added a third line below the delta: "↑ Gaining visibility" (>+5%), "→ Stable" (±5%), or "↓ Losing ground" (<-5%). Thresholds are intentionally loose because audit-to-audit variance is real (non-deterministic model responses, fresh probe questions each run).
+
+### Security: Nginx Headers
+
+Five security headers added to all responses:
+
+| Header | Protects Against |
+|---|---|
+| `X-Frame-Options: SAMEORIGIN` | Clickjacking (embedding the app in an iframe) |
+| `X-Content-Type-Options: nosniff` | MIME-type sniffing attacks |
+| `X-XSS-Protection: 1; mode=block` | Reflected XSS in older browsers |
+| `Content-Security-Policy` | Script injection, resource loading from unknown origins |
+| `Referrer-Policy: strict-origin-when-cross-origin` | Referrer leakage to third parties |
+
+Also added proxy timeouts to prevent hanging requests from blocking nginx workers: `connect_timeout 10s`, `read_timeout 120s` (180s for the API path to handle long audits).
+
+### Security: Postgres Credentials
+
+Hardcoded `POSTGRES_USER: peec / POSTGRES_PASSWORD: peec` in `docker-compose.yml` replaced with `${POSTGRES_USER:-peec}` / `${POSTGRES_PASSWORD:-peec}`. Production deployments set a strong password in `.env`. The default fallback preserves zero-config local setup.
+
+### Testing: 40+ Comprehensive Tests
+
+`tests/test_api_comprehensive.py` covers:
+
+- **Brand listing:** unauthenticated users only see example brands; no credential leakage
+- **Compare endpoint:** ranked by visibility, sequential ranks, all 5 example brands present
+- **Brand creation:** empty/whitespace/reserved session_id rejection; SQL injection safety
+- **Brand deletion:** example brands protected; IDOR prevention (can't delete another user's brand); no-session-id rejection
+- **Admin auth:** session_id=admin without correct key doesn't grant access; wrong key rejected; literal "None" rejected
+- **Data endpoints:** insights, model-bias (latency field present), probe-performance (60% threshold), probe-detail, dark-matter — all structure-checked
+- **Rate limiting:** fresh session shows count=0; example brand audit blocked
+- **Security:** session_id never in public responses; error responses are JSON
+- **Frontend:** Aura AI branding present; no peecclone leak; no admin trigger in HTML; brand/compare pages load
+
+Run: `pytest tests/test_api_comprehensive.py -v` (requires API on :8000, Next.js on :3000)
+
+---
+
 ## Appendix: Stack Summary
 
 | Layer | Technology | Version |
