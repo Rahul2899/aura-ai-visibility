@@ -22,6 +22,7 @@ class Brand(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     domain: Mapped[Optional[str]] = mapped_column(String(255))
+    industry: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     competitors: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
     session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 

@@ -9,9 +9,24 @@ from src.pipeline.scorer import score_brand
 router = APIRouter(prefix="/brands")
 
 
+INDUSTRIES = [
+    "HR Tech / Recruiting",
+    "SaaS / B2B Software",
+    "Healthcare",
+    "Finance / Fintech",
+    "E-commerce / Retail",
+    "Education / EdTech",
+    "Marketing / AdTech",
+    "Developer Tools",
+    "Security / Cybersecurity",
+    "Other",
+]
+
+
 class BrandCreate(BaseModel):
     name: str
     domain: str = ""
+    industry: str = ""
     session_id: str = ""
 
     @field_validator("name")
@@ -30,6 +45,22 @@ class BrandCreate(BaseModel):
 
 
 # ── Static routes FIRST (must come before /{brand_id} to avoid ambiguity) ──
+
+@router.get("/industries")
+async def list_industries():
+    """Return the fixed list of industry categories."""
+    return INDUSTRIES
+
+
+@router.get("/suggest-domain")
+async def suggest_domain(name: str):
+    """Generate domain suggestions for a brand name."""
+    slug = name.strip().lower().replace(" ", "").replace(".", "")
+    if not slug:
+        return {"suggestions": []}
+    tlds = [".com", ".io", ".ai", ".co", ".app"]
+    return {"suggestions": [f"{slug}{tld}" for tld in tlds]}
+
 
 @router.get("/compare")
 async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)):
@@ -71,6 +102,7 @@ async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)
                 "id": brand.id,
                 "name": brand.name,
                 "domain": brand.domain,
+                "industry": brand.industry,
                 "visibility_pct": latest.visibility_pct if latest else None,
                 "trend": trend,
                 "probe_count": latest.probe_count if latest else None,
@@ -104,7 +136,7 @@ async def list_brands(session_id: str = None, x_admin_key: str = Header(None)):
         else:
             stmt = stmt.where(Brand.session_id == "example")
         brands = (await session.scalars(stmt)).all()
-        return [{"id": b.id, "name": b.name, "domain": b.domain} for b in brands]
+        return [{"id": b.id, "name": b.name, "domain": b.domain, "industry": b.industry} for b in brands]
 
 
 @router.post("", status_code=201)
@@ -113,6 +145,7 @@ async def create_brand(body: BrandCreate):
         brand = Brand(
             name=body.name,
             domain=body.domain or None,
+            industry=body.industry or None,
             competitors=[],
             session_id=body.session_id if body.session_id else None
         )

@@ -2,6 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from src.db import engine, Base, SessionLocal
 from src.db_seed import seed_example_brands
 from src.api.semaphore import init_audit_semaphore
@@ -14,6 +15,10 @@ async def lifespan(app: FastAPI):
     init_audit_semaphore(max_concurrent=3)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add columns introduced after initial deploy (safe to run repeatedly)
+        await conn.execute(text(
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS industry VARCHAR(100)"
+        ))
     async with SessionLocal() as session:
         await seed_example_brands(session)
     yield

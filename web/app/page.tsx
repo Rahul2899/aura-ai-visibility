@@ -14,7 +14,9 @@ import {
   ArrowRight,
   ChevronRight,
   Search,
-  Plus
+  Plus,
+  Globe,
+  ChevronDown
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -43,6 +45,7 @@ type BrandRow = {
   id: number;
   name: string;
   domain: string | null;
+  industry: string | null;
   visibility_pct: number | null;
   trend: number | null;
   probe_count: number;
@@ -80,7 +83,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [name, setName] = useState("");
-  const [domain] = useState("");
+  const [domain, setDomain] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [domainSuggestions, setDomainSuggestions] = useState<string[]>([]);
+  const [industries, setIndustries] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [limitReached, setLimitReached] = useState(false);
@@ -90,21 +96,36 @@ export default function Home() {
     setLoading(true);
     try {
       const sess = getSessionId();
-      const res = await fetch(`${API}/brands/compare?session_id=${sess}`);
-      if (res.ok) setBrands(await res.json());
-
-      const limitRes = await fetch(`${API}/audit/limit-status?session_id=${sess}`);
+      const [compareRes, limitRes, industriesRes] = await Promise.all([
+        fetch(`${API}/brands/compare?session_id=${sess}`),
+        fetch(`${API}/audit/limit-status?session_id=${sess}`),
+        fetch(`${API}/brands/industries`),
+      ]);
+      if (compareRes.ok) setBrands(await compareRes.json());
       if (limitRes.ok) {
-        const limitData = await limitRes.json();
-        setLimitReached(limitData.limit_reached);
-        setAuditCount(limitData.count);
+        const d = await limitRes.json();
+        setLimitReached(d.limit_reached);
+        setAuditCount(d.count);
       }
+      if (industriesRes.ok) setIndustries(await industriesRes.json());
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Auto-suggest domain when name changes (debounced)
+  useEffect(() => {
+    if (!name.trim() || name.trim().length < 2) { setDomainSuggestions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API}/brands/suggest-domain?name=${encodeURIComponent(name.trim())}`);
+        if (r.ok) { const d = await r.json(); setDomainSuggestions(d.suggestions?.slice(0, 4) ?? []); }
+      } catch { /* ignore */ }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [name]);
 
   useEffect(() => {
     load();
@@ -125,6 +146,7 @@ export default function Home() {
         body: JSON.stringify({
           name: name.trim(),
           domain: domain.trim() || null,
+          industry: industry || null,
           session_id: getSessionId()
         }),
       });
@@ -337,7 +359,10 @@ export default function Home() {
                               {b.name}
                               <ChevronRight className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </p>
-                            {b.domain && <p className="text-[11px] text-slate-400 font-medium">{b.domain}</p>}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {b.domain && <p className="text-[11px] text-slate-400 font-medium">{b.domain}</p>}
+                              {b.industry && <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{b.industry.split("/")[0].trim()}</span>}
+                            </div>
                           </div>
                         </div>
                         <div className="col-span-2 text-right"><ScoreChip pct={b.visibility_pct} /></div>
@@ -399,20 +424,70 @@ export default function Home() {
                 </div>
               )}
 
-              <form onSubmit={addBrand} className="space-y-4">
+              <form onSubmit={addBrand} className="space-y-3">
+                {/* Brand name */}
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="brand-name" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Brand Name</label>
-                  <input id="brand-name" value={name} onChange={e => setName(e.target.value)}
+                  <input id="brand-name" value={name} onChange={e => { setName(e.target.value); setDomain(""); }}
                     placeholder="e.g. Salesforce"
                     className="w-full input-field py-2.5 text-sm"
                     aria-label="Brand name"
                     required
                     disabled={limitReached}
+                    autoComplete="off"
                   />
                 </div>
 
+                {/* Domain suggestions */}
+                {domainSuggestions.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-slate-500 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
+                      <Globe className="w-3 h-3" /> Domain
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {domainSuggestions.map(s => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setDomain(domain === s ? "" : s)}
+                          className={`text-xs font-semibold px-2 py-1.5 rounded-lg border transition-all text-left truncate ${
+                            domain === s
+                              ? "border-[var(--accent)] bg-[var(--accent-dim)] text-[var(--accent)]"
+                              : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    {domain && (
+                      <p className="text-[10px] text-[var(--accent)] font-semibold">Selected: {domain}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Industry */}
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="brand-industry" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Industry <span className="normal-case text-slate-400">(improves probe questions)</span></label>
+                  <div className="relative">
+                    <select
+                      id="brand-industry"
+                      value={industry}
+                      onChange={e => setIndustry(e.target.value)}
+                      disabled={limitReached}
+                      className="w-full input-field py-2.5 text-sm appearance-none pr-8 cursor-pointer"
+                    >
+                      <option value="">Select industry…</option>
+                      {industries.map(ind => (
+                        <option key={ind} value={ind}>{ind}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2.5 top-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+
                 <button type="submit" disabled={adding || !name.trim() || limitReached}
-                  className="w-full btn-primary flex items-center justify-center gap-1.5 py-2.5"
+                  className="w-full btn-primary flex items-center justify-center gap-1.5 py-2.5 mt-1"
                 >
                   <Plus className="w-4 h-4 text-white" />
                   {adding ? "Running Audit..." : limitReached ? "Limit Reached" : "Add & Run Audit"}

@@ -24,8 +24,8 @@ MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") fo
 SYSTEM_PROMPT = """You are an AI brand visibility analyst. AI models learn from web content — your job is to measure how visible a brand is in AI responses AND tell the marketing team how to improve it.
 
 Steps:
-1. Call get_brand_context.
-2. Run 8-10 probe questions customized to the brand's specific industry, category, and scale. Do NOT ask generic "Tell me about brand X" or "Is brand X good" queries. Instead, write realistic search-intent prompts that actual buyers ask when looking for solutions:
+1. Call get_brand_context. The response includes name, domain, industry, and competitors.
+2. Use the brand's industry to write 8-10 probe questions that match how REAL BUYERS in that sector search for solutions. If industry is "unknown", infer it from the brand name and domain. Do NOT ask generic "Tell me about brand X" queries. Write realistic search-intent prompts:
    - Brand-Direct: Questions seeking specific technical, pricing, integration, or compliance details (e.g., "Does [Brand] support HIPAA compliance?" or "Can I connect [Brand] to Salesforce?").
    - Category Recommendation: Natural language recommendation queries detailing scale, industry, and pain point (e.g., "What is the best expense management software for a B2B SaaS startup with 50 employees?").
    - Feature-Specific: Prompts looking for solutions with specific capabilities (e.g., "Which virtual card systems allow instant CSV exports and real-time spending controls?").
@@ -197,7 +197,12 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
     brand = await session.get(Brand, brand_id)
     if not brand:
         raise ValueError(f"Brand {brand_id} not found")
-    return {"name": brand.name, "domain": brand.domain, "competitors": brand.competitors or []}
+    return {
+        "name": brand.name,
+        "domain": brand.domain,
+        "industry": brand.industry or "unknown",
+        "competitors": brand.competitors or [],
+    }
 
 
 async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False) -> Insight | None:
