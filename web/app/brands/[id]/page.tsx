@@ -83,8 +83,32 @@ export default function BrandPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
-        <p className="text-slate-400 text-sm font-semibold">Loading brand data…</p>
+      <main className="min-h-screen" style={{ background: "var(--bg)" }}>
+        <header className="border-b px-8 py-4 flex items-center justify-between" style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.92)" }}>
+          <div className="h-5 w-40 rounded bg-slate-200 animate-pulse" />
+          <div className="h-9 w-28 rounded-lg bg-slate-200 animate-pulse" />
+        </header>
+        <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+          <div className="card p-6">
+            <div className="flex items-center gap-6">
+              <div className="w-28 h-28 rounded-full bg-slate-200 animate-pulse" />
+              <div className="flex-1 space-y-3">
+                <div className="h-4 w-1/3 rounded bg-slate-200 animate-pulse" />
+                <div className="h-4 w-1/2 rounded bg-slate-100 animate-pulse" />
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {[0, 1].map(i => (
+              <div key={i} className="card p-6 space-y-3">
+                <div className="h-3 w-24 rounded bg-slate-200 animate-pulse" />
+                <div className="h-4 w-full rounded bg-slate-100 animate-pulse" />
+                <div className="h-4 w-5/6 rounded bg-slate-100 animate-pulse" />
+                <div className="h-4 w-4/6 rounded bg-slate-100 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
       </main>
     );
   }

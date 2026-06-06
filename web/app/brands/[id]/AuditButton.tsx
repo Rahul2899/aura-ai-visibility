@@ -27,12 +27,59 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
+  // Persist the active job id per brand so an in-progress audit survives a page
+  // refresh — on mount we resume polling instead of showing a dead/empty state.
+  const jobKey = `aura_audit_job_${brandId}`;
+
   function parseCustomQuestions(): string[] {
     return customText
       .split("\n")
       .map(q => q.trim())
       .filter(q => q.length > 5)
       .slice(0, 5);
+  }
+
+  function pollJob(job_id: string) {
+    let lastProbeCount = 0;
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${API}/audit/${job_id}`);
+        if (r.status === 404) {
+          // Job vanished (server restarted). Stop cleanly rather than looping forever.
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(jobKey);
+          started.current = false;
+          setJob(null);
+          setLog([]);
+          return;
+        }
+        if (!r.ok) throw new Error(`status ${r.status}`);
+        const j: JobState = await r.json();
+        setJob(j);
+
+        if ((j.probe_count ?? 0) > lastProbeCount) {
+          lastProbeCount = j.probe_count ?? 0;
+          setLog(prev => [...prev, `Probe query ${lastProbeCount} completed successfully`]);
+        }
+
+        if (j.status === "completed") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(jobKey);
+          setLog(prev => [...prev, `✓ Audit finalized: ${j.visibility_pct?.toFixed(1)}% brand visibility`]);
+          setTimeout(() => reloadPage(), 1200);
+        } else if (j.status === "failed") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(jobKey);
+          started.current = false;
+          setLog(prev => [...prev, `✗ Audit failed: ${j.error}`]);
+        }
+      } catch (e) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        started.current = false;
+        setJob({ status: "failed", error: String(e) });
+      }
+    }, 3000);
   }
 
   async function startAudit() {
@@ -66,36 +113,9 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     }
 
     const { job_id } = await res.json();
+    localStorage.setItem(jobKey, job_id);
     setLog(prev => [...prev, `Generating category-specific probe questions…`]);
-
-    let lastProbeCount = 0;
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${API}/audit/${job_id}`);
-        if (!r.ok) throw new Error(`status ${r.status}`);
-        const j: JobState = await r.json();
-        setJob(j);
-
-        if ((j.probe_count ?? 0) > lastProbeCount) {
-          lastProbeCount = j.probe_count ?? 0;
-          setLog(prev => [...prev, `Probe query ${lastProbeCount} completed successfully`]);
-        }
-
-        if (j.status === "completed") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          setLog(prev => [...prev, `✓ Audit finalized: ${j.visibility_pct?.toFixed(1)}% brand visibility`]);
-          setTimeout(() => reloadPage(), 1200);
-        } else if (j.status === "failed") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          started.current = false;
-          setLog(prev => [...prev, `✗ Audit failed: ${j.error}`]);
-        }
-      } catch (e) {
-        if (pollRef.current) clearInterval(pollRef.current);
-        started.current = false;
-        setJob({ status: "failed", error: String(e) });
-      }
-    }, 3000);
+    pollJob(job_id);
   }
 
   useEffect(() => {
@@ -104,6 +124,15 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     if (params.get("autostart") === "1") {
       window.history.replaceState({}, "", window.location.pathname);
       startAudit();
+      return;
+    }
+    // Resume an audit that was in progress before a refresh.
+    const stored = localStorage.getItem(jobKey);
+    if (stored) {
+      started.current = true;
+      setJob({ status: "running" });
+      setLog(["Resuming in-progress audit…"]);
+      pollJob(stored);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

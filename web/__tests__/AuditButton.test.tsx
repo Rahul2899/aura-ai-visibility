@@ -16,11 +16,13 @@ describe("AuditButton Component", () => {
     jest.useFakeTimers();
     originalFetch = global.fetch;
     (reloadPage as jest.Mock).mockClear();
+    localStorage.clear();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     jest.useRealTimers();
+    localStorage.clear();
   });
 
   it("handles the full audit lifecycle (start, polling, completed, reload)", async () => {
@@ -123,5 +125,56 @@ describe("AuditButton Component", () => {
 
     expect(screen.getByText(/Audit failed: Rate limit exceeded/)).toBeInTheDocument();
     expect(screen.getByText(/Failed/)).toBeInTheDocument();
+  });
+
+  it("persists job_id to localStorage on start", async () => {
+    const fetchMock = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ job_id: "job_persist", status: "queued" }),
+    });
+    global.fetch = fetchMock;
+
+    render(<AuditButton brandId={brandId} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Execute brand audit queries" }));
+    });
+
+    expect(localStorage.getItem(`aura_audit_job_${brandId}`)).toBe("job_persist");
+  });
+
+  it("resumes polling from a stored job on mount", async () => {
+    localStorage.setItem(`aura_audit_job_${brandId}`, "job_resume");
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "running", probe_count: 5 }),
+    });
+    global.fetch = fetchMock;
+
+    render(<AuditButton brandId={brandId} />);
+    // Shows the resume state immediately
+    expect(screen.getByText(/Resuming in-progress audit…/)).toBeInTheDocument();
+
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+    // Polled the stored job, not started a new one (GET, not POST)
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/audit/job_resume"));
+  });
+
+  it("clears stored job and resets when server returns 404 (server restarted)", async () => {
+    localStorage.setItem(`aura_audit_job_${brandId}`, "job_gone");
+    const fetchMock = jest.fn().mockResolvedValue({
+      status: 404,
+      ok: false,
+      json: async () => ({ detail: "Job not found" }),
+    });
+    global.fetch = fetchMock;
+
+    render(<AuditButton brandId={brandId} />);
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+
+    expect(localStorage.getItem(`aura_audit_job_${brandId}`)).toBeNull();
   });
 });

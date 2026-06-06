@@ -17,7 +17,8 @@ import {
   Plus,
   Globe,
   ChevronDown,
-  Building2
+  Building2,
+  RefreshCw
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -216,8 +217,28 @@ export default function Home() {
             
             {/* Brands List / Visual onboarding card */}
             {loading ? (
-              <div className="card p-12 text-center text-slate-400 text-sm font-semibold" style={{ borderStyle: "dashed" }}>
-                Loading brands database...
+              <div className="card overflow-hidden">
+                <div className="p-6 border-b border-slate-100">
+                  <div className="h-5 w-40 rounded bg-slate-200 animate-pulse" />
+                  <div className="h-3 w-56 rounded bg-slate-100 animate-pulse mt-2" />
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {[0, 1, 2, 3].map(i => (
+                    <div key={i} className="grid grid-cols-12 px-6 py-3.5 items-center">
+                      <div className="col-span-1"><div className="h-4 w-4 rounded bg-slate-200 animate-pulse" /></div>
+                      <div className="col-span-5 flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-md bg-slate-200 animate-pulse" />
+                        <div className="space-y-1.5">
+                          <div className="h-3.5 w-24 rounded bg-slate-200 animate-pulse" />
+                          <div className="h-2.5 w-16 rounded bg-slate-100 animate-pulse" />
+                        </div>
+                      </div>
+                      <div className="col-span-2 flex justify-end"><div className="h-6 w-12 rounded-lg bg-slate-100 animate-pulse" /></div>
+                      <div className="col-span-2 flex justify-end"><div className="h-6 w-10 rounded-lg bg-slate-100 animate-pulse" /></div>
+                      <div className="col-span-2 flex justify-end"><div className="h-4 w-6 rounded bg-slate-100 animate-pulse" /></div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : audited.length === 0 ? (
               /* Beautiful Visual Onboarding Step Diagram for New Users */
@@ -325,6 +346,14 @@ export default function Home() {
                         <div className="col-span-2 text-right flex justify-end"><TrendPill v={b.trend} /></div>
                         <div className="col-span-2 text-right flex items-center justify-end gap-1">
                           <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "—"}</span>
+                          {!b.is_example && (
+                            <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
+                              className="ml-1 w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
+                              title="Re-run audit"
+                              aria-label={`Re-run audit for ${b.name}`}>
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {b.is_example ? (
                             <span title="Example brands are read-only" className="ml-1 w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
                               <Trash2 className="w-3.5 h-3.5 text-slate-200" />

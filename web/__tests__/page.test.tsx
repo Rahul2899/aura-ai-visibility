@@ -64,7 +64,8 @@ describe("Homepage Dashboard Component", () => {
   it("renders onboarding when no audited brands exist", async () => {
     global.fetch = mockFetch([]);
     render(<Home />);
-    expect(screen.getByText("Loading brands database...")).toBeInTheDocument();
+    // During loading the onboarding content is not yet shown (skeleton is up).
+    expect(screen.queryByText("How Aura works")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("How Aura works")).toBeInTheDocument();
     });
