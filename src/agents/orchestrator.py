@@ -27,7 +27,7 @@ async def _web_search_brand(name: str, domain: str | None, industry: str | None)
 
     if tavily_key:
         try:
-            query = f"{name} {industry or \"\"} software features pricing use cases".strip()
+            query = f"{name} {industry or ''} software features pricing use cases".strip()
             async with httpx.AsyncClient(timeout=8) as client:
                 r = await client.post(
                     "https://api.tavily.com/search",
@@ -52,21 +52,71 @@ async def _web_search_brand(name: str, domain: str | None, industry: str | None)
         except Exception as e:
             log.warning("web_search_failed", brand=name, error=str(e))
 
-    # Fallback: scrape brand homepage if domain is known
+    # Fallback: scrape brand homepage if domain is known (SSRF-safe)
     if domain:
-        url = f"https://{domain}" if not domain.startswith("http") else domain
-        try:
-            async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
-                r = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
-            if r.status_code == 200:
-                text = re.sub(r"<[^>]+>", " ", r.text)
-                text = re.sub(r"\s+", " ", text).strip()[:1200]
-                log.info("homepage_fetch_ok", brand=name, chars=len(text))
-                return text
-        except Exception as e:
-            log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
+        safe_url = _safe_https_url(domain)
+        if safe_url:
+            try:
+                async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
+                    r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
+                if r.status_code == 200:
+                    text = re.sub(r"<[^>]+>", " ", r.text)
+                    text = re.sub(r"\s+", " ", text).strip()[:1200]
+                    log.info("homepage_fetch_ok", brand=name, chars=len(text))
+                    return text
+            except Exception as e:
+                log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
+        else:
+            log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
 
     return None
+
+
+def _safe_https_url(domain: str) -> str | None:
+    """Return https://{domain} only if domain is a valid public hostname.
+    Rejects: http(s):// prefixes, paths, ports, loopback, RFC1918, link-local,
+    and cloud metadata addresses. Always builds the URL itself — never trusts
+    user-supplied scheme."""
+    import ipaddress
+    import socket
+    import re as _re
+
+    # Must be a bare hostname: letters, digits, hyphens, dots — no scheme/path/port
+    if not _re.fullmatch(r"[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*", domain):
+        return None
+
+    # Resolve and check all returned addresses
+    try:
+        results = socket.getaddrinfo(domain, 443, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return None
+
+    BLOCKED = [
+        ipaddress.ip_network("127.0.0.0/8"),    # loopback
+        ipaddress.ip_network("::1/128"),          # IPv6 loopback
+        ipaddress.ip_network("10.0.0.0/8"),       # RFC1918
+        ipaddress.ip_network("172.16.0.0/12"),    # RFC1918
+        ipaddress.ip_network("192.168.0.0/16"),   # RFC1918
+        ipaddress.ip_network("169.254.0.0/16"),   # link-local / AWS metadata
+        ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
+        ipaddress.ip_network("0.0.0.0/8"),         # this-network
+        ipaddress.ip_network("100.64.0.0/10"),    # shared address space
+    ]
+
+    for _family, _type, _proto, _canon, sockaddr in results:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return None
+        for blocked_net in BLOCKED:
+            try:
+                if ip in blocked_net:
+                    return None
+            except TypeError:
+                pass  # ipv4 vs ipv6 mismatch — skip
+
+    return f"https://{domain}"
 
 ORCHESTRATOR_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 MAX_STEPS = 30
