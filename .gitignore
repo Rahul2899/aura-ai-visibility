@@ -17,6 +17,10 @@ CLAUDE.md
 
 # Dev notes (not for public repo)
 docs/journey/
+docs/superpowers/
+
+# Screenshot artifacts from verification runs
+*.png
 
 # Personio legacy prompts
 prompts/seeds/personio.txt
