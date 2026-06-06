@@ -4,7 +4,6 @@ from src.models import Brand
 
 async def seed_example_brands(session: AsyncSession):
     hr_brands = [
-        Brand(id=1003, name="Picked", domain="picked.ai", competitors=["Greenhouse", "Lever", "Ashby"], session_id="example"),
         Brand(id=1004, name="Greenhouse", domain="greenhouse.io", competitors=["Lever", "Ashby", "Workday"], session_id="example"),
         Brand(id=1005, name="Lever", domain="lever.co", competitors=["Greenhouse", "Ashby", "Workday"], session_id="example"),
         Brand(id=1006, name="Ashby", domain="ashbyhq.com", competitors=["Greenhouse", "Lever", "Rippling"], session_id="example"),

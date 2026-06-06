@@ -15,8 +15,8 @@ BASE = "http://localhost:8000"
 FRONTEND = "http://localhost:3000"
 
 # Seeded example brand IDs (from db_seed.py)
-EXAMPLE_BRAND_ID = 1003   # Picked
-EXAMPLE_BRAND_ID_2 = 1004  # Greenhouse
+EXAMPLE_BRAND_ID = 1004   # Greenhouse
+EXAMPLE_BRAND_ID_2 = 1005  # Lever
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def test_brands_list_no_session_returns_only_examples(client):
     r = client.get("/brands")
     brands = r.json()
     ids = {b["id"] for b in brands}
-    assert ids.issubset({1003, 1004, 1005, 1006, 1007}), \
+    assert ids.issubset({1004, 1005, 1006, 1007}), \
         "Unauthenticated request leaked non-example brands"
 
 
@@ -92,7 +92,7 @@ def test_compare_visibility_in_valid_range(client):
 def test_compare_expected_brands_present(client):
     brands = client.get("/brands/compare").json()
     names = [b["name"].lower() for b in brands]
-    for expected in ["workday", "greenhouse", "lever", "ashby", "picked"]:
+    for expected in ["workday", "greenhouse", "lever", "ashby"]:
         assert any(expected in n for n in names), f"Expected example brand '{expected}' missing"
 
 
