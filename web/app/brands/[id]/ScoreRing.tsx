@@ -5,15 +5,14 @@ import { Trophy, Medal, Award } from "lucide-react";
 
 type Props = {
   pct: number;
-  target?: number; // goal %
-  rank?: number;   // position among tracked brands
-  total?: number;  // total brands tracked
+  target?: number;
+  rank?: number;
+  total?: number;
 };
 
 export default function ScoreRing({ pct, target, rank, total }: Props) {
   const [displayed, setDisplayed] = useState(0);
 
-  // Count up animation on mount
   useEffect(() => {
     const duration = 800;
     const steps = 40;
@@ -32,32 +31,32 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
   }, [pct]);
 
   const label = pct >= 60 ? "Strong" : pct >= 35 ? "Moderate" : "Needs Work";
-  const labelColorClass = pct >= 60 ? "text-emerald-400" : pct >= 35 ? "text-amber-400" : "text-red-400";
+  const labelColorClass = pct >= 60 ? "text-emerald-600" : pct >= 35 ? "text-amber-500" : "text-red-500";
+  const scoreColorClass = pct >= 60 ? "text-emerald-700" : pct >= 35 ? "text-amber-600" : "text-red-600";
   const gradientId = pct >= 60 ? "greenGrad" : pct >= 35 ? "amberGrad" : "redGrad";
 
   const nextMilestone = pct < 35 ? 35 : pct < 60 ? 60 : pct < 80 ? 80 : 100;
-  const nextLabel = pct < 35 ? "Moderate" : pct < 60 ? "Good" : pct < 80 ? "Strong" : "Perfect";
+  const nextLabel = pct < 35 ? "Moderate" : pct < 60 ? "Strong" : pct < 80 ? "Strong" : "Perfect";
   const gap = nextMilestone - pct;
 
-  // Render rank badge using SVG vector icons instead of emojis
   const renderRankBadge = () => {
     if (!rank || !total) return null;
 
-    let badgeClass = "bg-zinc-900 border-zinc-800 text-zinc-400";
+    let badgeClass = "bg-slate-100 border-slate-200 text-slate-500";
     let icon = <Award className="w-3.5 h-3.5" />;
     let text = `#${rank} of ${total} tracked brands`;
 
     if (rank === 1) {
-      badgeClass = "bg-yellow-500/10 border-yellow-500/20 text-yellow-400 shadow-sm shadow-yellow-500/5";
-      icon = <Trophy className="w-3.5 h-3.5 text-yellow-400" />;
+      badgeClass = "bg-amber-50 border-amber-200 text-amber-700 shadow-sm";
+      icon = <Trophy className="w-3.5 h-3.5 text-amber-500" />;
       text = `Market Leader (#1 of ${total})`;
     } else if (rank === 2) {
-      badgeClass = "bg-slate-300/10 border-slate-300/20 text-slate-300 shadow-sm shadow-slate-300/5";
-      icon = <Medal className="w-3.5 h-3.5 text-slate-300" />;
+      badgeClass = "bg-slate-100 border-slate-300 text-slate-600 shadow-sm";
+      icon = <Medal className="w-3.5 h-3.5 text-slate-500" />;
       text = `Runner Up (#2 of ${total})`;
     } else if (rank === 3) {
-      badgeClass = "bg-amber-700/10 border-amber-700/20 text-amber-600 shadow-sm shadow-amber-700/5";
-      icon = <Medal className="w-3.5 h-3.5 text-amber-600" />;
+      badgeClass = "bg-orange-50 border-orange-200 text-orange-700 shadow-sm";
+      icon = <Medal className="w-3.5 h-3.5 text-orange-500" />;
       text = `#3 of ${total} brands`;
     }
 
@@ -71,7 +70,7 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
 
   return (
     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
-      {/* Animated ring with modern gradient definition */}
+      {/* Animated ring */}
       <div className="relative w-32 h-32 flex-shrink-0">
         <svg viewBox="0 0 36 36" className="w-32 h-32 -rotate-90" aria-hidden="true">
           <defs>
@@ -88,11 +87,7 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
               <stop offset="100%" stopColor="#b91c1c" />
             </linearGradient>
           </defs>
-          
-          {/* Base track */}
-          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--border-solid)" strokeWidth="2.5" />
-          
-          {/* Animated active path */}
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e2e8f0" strokeWidth="2.5" />
           <circle cx="18" cy="18" r="15.9" fill="none" stroke={`url(#${gradientId})`} strokeWidth="3"
             strokeDasharray={`${displayed} ${100 - displayed}`} strokeLinecap="round"
             style={{ transition: "stroke-dasharray 0.05s ease" }}
@@ -100,12 +95,12 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
           {target && target !== pct && (
             <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--accent)" strokeWidth="0.8"
               strokeDasharray={`0.5 ${target - 0.5} ${100 - target}`} strokeLinecap="round"
-              strokeOpacity="0.6"
+              strokeOpacity="0.5"
             />
           )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-extrabold text-white tabular">{displayed}%</span>
+          <span className={`text-3xl font-extrabold tabular ${scoreColorClass}`}>{displayed}%</span>
           <span className={`text-[9px] uppercase font-bold tracking-wider mt-0.5 ${labelColorClass}`}>{label}</span>
         </div>
       </div>
@@ -113,25 +108,21 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
       {/* Stats beside the ring */}
       <div className="flex flex-col gap-3 pt-1 text-center sm:text-left">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">AI Visibility Score</h2>
-          <p className="text-zinc-400 text-sm mt-1 leading-relaxed max-w-md font-semibold">
-            Your brand appears in <span className="text-white font-extrabold tabular">{pct.toFixed(0)}</span>% of search completions across tested AI models.
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">AI Visibility Score</h2>
+          <p className="text-slate-500 text-sm mt-1 leading-relaxed max-w-md font-semibold">
+            Your brand appears in <span className={`font-extrabold tabular ${scoreColorClass}`}>{pct.toFixed(0)}</span>% of search completions across tested AI models.
           </p>
         </div>
-
-        {/* Rank badge container */}
         <div className="flex justify-center sm:justify-start">
           {renderRankBadge()}
         </div>
-
-        {/* Next milestone */}
         {gap > 0 && (
           <div className="w-full sm:w-64">
-            <div className="flex items-center justify-between mb-1.5 text-xs text-zinc-400 font-semibold">
+            <div className="flex items-center justify-between mb-1.5 text-xs text-slate-400 font-semibold">
               <span>Next: {nextLabel} ({nextMilestone}%)</span>
               <span className="tabular">{gap.toFixed(0)}% away</span>
             </div>
-            <div className="w-full bg-zinc-950 rounded-full h-1.5 overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden border border-slate-300">
               <div className="h-full rounded-full bg-[var(--accent)] transition-all duration-1000"
                 style={{ width: `${Math.max(0, Math.min(100, ((pct - (nextMilestone - 25)) / 25) * 100))}%` }}
               />

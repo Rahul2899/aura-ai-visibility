@@ -98,17 +98,25 @@ textarea:focus-visible {
 .score-moderate { color: var(--amber); text-shadow: 0 0 12px var(--amber-glow); }
 .score-weak { color: var(--red); text-shadow: 0 0 12px var(--red-glow); }
 
-/* Premium Card Elements — Glassmorphism with layout transition support */
+/* Premium Card Elements */
 .card {
-  background: #fafbfc;
-  border: 1px solid #d8dde3;
+  background: #ffffff;
+  border: 1px solid #dde1e8;
   border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  border-color: #c8cfd8;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
+}
+
+/* CTA card — draws the eye to the primary action */
+.card-cta {
+  background: #ffffff;
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(3, 105, 161, 0.1), 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .card-elevated {
@@ -195,6 +203,15 @@ textarea:focus-visible {
 .input-field:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
+  background: #ffffff;
+}
+select.input-field {
+  cursor: pointer;
+  color: var(--text);
+}
+select.input-field option {
+  background: #ffffff;
+  color: var(--text);
 }
 
 /* Typography headers */

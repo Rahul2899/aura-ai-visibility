@@ -2,11 +2,12 @@ import asyncio
 import hashlib
 import json
 import os
-import time
+import re
 import structlog
 from datetime import datetime
 
 import boto3
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,56 @@ from src.llm.bedrock_client import BedrockClient, BEDROCK_MODELS
 from src.llm.extractor import extract_mentions
 
 log = structlog.get_logger()
+
+
+async def _web_search_brand(name: str, domain: str | None, industry: str | None) -> str | None:
+    """Enrich brand context via web search before probe generation.
+    Uses Tavily if TAVILY_API_KEY is set; falls back to fetching the brand homepage.
+    Returns a brief text summary, or None if no enrichment available."""
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+
+    if tavily_key:
+        try:
+            query = f"{name} {industry or \"\"} software features pricing use cases".strip()
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": tavily_key,
+                        "query": query,
+                        "search_depth": "basic",
+                        "max_results": 4,
+                        "include_answer": True,
+                    }
+                )
+            if r.status_code == 200:
+                data = r.json()
+                answer = data.get("answer", "")
+                snippets = " | ".join(
+                    res.get("content", "")[:300]
+                    for res in data.get("results", [])[:3]
+                )
+                summary = f"{answer} {snippets}".strip()[:1200]
+                log.info("web_search_ok", brand=name, chars=len(summary))
+                return summary
+        except Exception as e:
+            log.warning("web_search_failed", brand=name, error=str(e))
+
+    # Fallback: scrape brand homepage if domain is known
+    if domain:
+        url = f"https://{domain}" if not domain.startswith("http") else domain
+        try:
+            async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
+                r = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
+            if r.status_code == 200:
+                text = re.sub(r"<[^>]+>", " ", r.text)
+                text = re.sub(r"\s+", " ", text).strip()[:1200]
+                log.info("homepage_fetch_ok", brand=name, chars=len(text))
+                return text
+        except Exception as e:
+            log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
+
+    return None
 
 ORCHESTRATOR_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 MAX_STEPS = 30
@@ -197,12 +248,17 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
     brand = await session.get(Brand, brand_id)
     if not brand:
         raise ValueError(f"Brand {brand_id} not found")
-    return {
+    context = {
         "name": brand.name,
         "domain": brand.domain,
         "industry": brand.industry or "unknown",
         "competitors": brand.competitors or [],
     }
+    # Enrich with live web data so probes reference real features/positioning
+    web_summary = await _web_search_brand(brand.name, brand.domain, brand.industry)
+    if web_summary:
+        context["web_context"] = web_summary
+    return context
 
 
 async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False) -> Insight | None:

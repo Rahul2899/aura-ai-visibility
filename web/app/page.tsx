@@ -16,7 +16,8 @@ import {
   Search,
   Plus,
   Globe,
-  ChevronDown
+  ChevronDown,
+  Building2
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -85,7 +86,6 @@ export default function Home() {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [industry, setIndustry] = useState("");
-  const [domainSuggestions, setDomainSuggestions] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
@@ -115,17 +115,6 @@ export default function Home() {
     }
   }, []);
 
-  // Auto-suggest domain when name changes (debounced)
-  useEffect(() => {
-    if (!name.trim() || name.trim().length < 2) { setDomainSuggestions([]); return; }
-    const t = setTimeout(async () => {
-      try {
-        const r = await fetch(`${API}/brands/suggest-domain?name=${encodeURIComponent(name.trim())}`);
-        if (r.ok) { const d = await r.json(); setDomainSuggestions(d.suggestions?.slice(0, 4) ?? []); }
-      } catch { /* ignore */ }
-    }, 400);
-    return () => clearTimeout(t);
-  }, [name]);
 
   useEffect(() => {
     load();
@@ -412,24 +401,28 @@ export default function Home() {
           {/* Right Column: Sidebar (col-span-12 lg:col-span-4) */}
           <div className="col-span-12 lg:col-span-4 space-y-6">
             
-            {/* Add Brand Form Card */}
-            <div className="card p-5">
-              <h2 className="text-slate-900 font-bold text-sm mb-0.5">Audit a Brand</h2>
-              <p className="text-slate-400 text-xs mb-4">Add a brand name to measure its AI visibility.</p>
-              
+            {/* Add Brand Form Card — accent border to draw the eye */}
+            <div className="card-cta p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded-md bg-[var(--accent-dim)] flex items-center justify-center">
+                  <Building2 className="w-3.5 h-3.5 text-[var(--accent)]" />
+                </div>
+                <h2 className="text-slate-900 font-bold text-sm">Audit a Brand</h2>
+              </div>
+              <p className="text-slate-400 text-xs mb-4 pl-8">Add any brand to measure its AI visibility across models.</p>
+
               {limitReached && (
-                <div className="border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold p-4 rounded-xl flex flex-col gap-1 mb-4 leading-relaxed">
+                <div className="border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold p-3 rounded-xl flex flex-col gap-1 mb-4 leading-relaxed">
                   <span className="font-extrabold uppercase text-[10px] tracking-wider">Audit Limit Reached</span>
-                  You've used both free audits for today. Try again later.
+                  You&apos;ve used both free audits. Try again later or from a different network.
                 </div>
               )}
 
               <form onSubmit={addBrand} className="space-y-3">
-                {/* Brand name */}
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="brand-name" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Brand Name</label>
-                  <input id="brand-name" value={name} onChange={e => { setName(e.target.value); setDomain(""); }}
-                    placeholder="e.g. Salesforce"
+                  <input id="brand-name" value={name} onChange={e => setName(e.target.value)}
+                    placeholder="e.g. Salesforce, Rippling, Notion"
                     className="w-full input-field py-2.5 text-sm"
                     aria-label="Brand name"
                     required
@@ -438,44 +431,30 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Domain suggestions */}
-                {domainSuggestions.length > 0 && (
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-slate-500 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
-                      <Globe className="w-3 h-3" /> Domain
-                    </label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {domainSuggestions.map(s => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setDomain(domain === s ? "" : s)}
-                          className={`text-xs font-semibold px-2 py-1.5 rounded-lg border transition-all text-left truncate ${
-                            domain === s
-                              ? "border-[var(--accent)] bg-[var(--accent-dim)] text-[var(--accent)]"
-                              : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
-                          }`}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                    {domain && (
-                      <p className="text-[10px] text-[var(--accent)] font-semibold">Selected: {domain}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Industry */}
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="brand-industry" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Industry <span className="normal-case text-slate-400">(improves probe questions)</span></label>
+                  <label htmlFor="brand-domain" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
+                    <Globe className="w-3 h-3" /> Domain <span className="normal-case text-slate-300 font-normal">(optional)</span>
+                  </label>
+                  <input id="brand-domain" value={domain} onChange={e => setDomain(e.target.value)}
+                    placeholder="e.g. salesforce.com"
+                    className="w-full input-field py-2.5 text-sm"
+                    aria-label="Brand domain"
+                    disabled={limitReached}
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="brand-industry" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+                    Industry <span className="normal-case text-slate-300 font-normal">(sharpens probe questions)</span>
+                  </label>
                   <div className="relative">
                     <select
                       id="brand-industry"
                       value={industry}
                       onChange={e => setIndustry(e.target.value)}
                       disabled={limitReached}
-                      className="w-full input-field py-2.5 text-sm appearance-none pr-8 cursor-pointer"
+                      className="w-full input-field py-2.5 text-sm appearance-none pr-8"
                     >
                       <option value="">Select industry…</option>
                       {industries.map(ind => (
