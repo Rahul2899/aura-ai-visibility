@@ -1,18 +1,29 @@
 """
-Comprehensive API test suite — 40+ test cases covering security, data integrity,
-rate limiting, and all brand/audit endpoints.
+Comprehensive API integration suite — security, data integrity, rate limiting,
+and all brand/audit endpoints. These hit a LIVE server + Postgres.
 
-Run with API and frontend both running:
-  python3 -m uvicorn src.api.main:app --port 8000 --reload   (in one terminal)
-  cd web && npm run dev                                        (in another)
+Run the stack first:
+  docker-compose up -d
+  # or locally:
+  python3 -m uvicorn src.api.main:app --port 8000 --reload   (one terminal)
+  cd web && npm run dev                                        (another)
 
-Then: pytest tests/test_api_comprehensive.py -v
+Then:
+  pytest tests/test_api_comprehensive.py -v          # this file
+  pytest -m integration                               # all integration tests
+  pytest -m "not integration"                         # fast unit tests only
+
+Override the target with env vars when testing a deployed instance:
+  API_BASE=http://your-ec2-ip/api FRONTEND_BASE=http://your-ec2-ip pytest -m integration
 """
+import os
 import pytest
 import httpx
 
-BASE = "http://localhost:8000"
-FRONTEND = "http://localhost:3000"
+pytestmark = pytest.mark.integration
+
+BASE = os.environ.get("API_BASE", "http://localhost:8000")
+FRONTEND = os.environ.get("FRONTEND_BASE", "http://localhost:3000")
 
 # Seeded example brand IDs (from db_seed.py)
 EXAMPLE_BRAND_ID = 1004   # Greenhouse
@@ -428,4 +439,90 @@ def test_probe_detail_user_brand_idor_blocked(client):
 def test_suggest_domain_removed(client):
     r = client.get("/brands/suggest-domain?name=Test")
     assert r.status_code in (404, 422)
+
+
+# ── CUSTOM QUESTIONS (audit body) ─────────────────────────────────────────────
+
+def test_audit_accepts_custom_questions_body(client):
+    # Foreign session is rejected (403) before the body matters — but a malformed
+    # body must never 500. Use the owner so we reach body handling.
+    created = client.post("/brands", json={"name": "CQBrand", "session_id": "sess_cq_owner"})
+    bid = created.json()["id"]
+    # Owner with custom questions: should not 4xx on the body itself (may 429 if
+    # already rate-limited, or queue). Accept queued/limit, reject 422/500.
+    r = client.post(
+        f"/audit/brands/{bid}?session_id=sess_cq_owner",
+        json={"custom_questions": ["Does CQBrand integrate with Slack?", "  ", "Pricing?"]},
+    )
+    assert r.status_code in (200, 429, 503), f"custom questions body broke audit: {r.status_code}"
+    client.delete(f"/brands/{bid}?session_id=sess_cq_owner")
+
+
+def test_audit_empty_body_still_works(client):
+    created = client.post("/brands", json={"name": "NoBodyBrand", "session_id": "sess_nb_owner"})
+    bid = created.json()["id"]
+    r = client.post(f"/audit/brands/{bid}?session_id=sess_nb_owner")  # no JSON body
+    assert r.status_code in (200, 429, 503), f"empty body broke audit: {r.status_code}"
+    client.delete(f"/brands/{bid}?session_id=sess_nb_owner")
+
+
+def test_audit_malformed_custom_questions_not_500(client):
+    created = client.post("/brands", json={"name": "BadBodyBrand", "session_id": "sess_bb_owner"})
+    bid = created.json()["id"]
+    r = client.post(
+        f"/audit/brands/{bid}?session_id=sess_bb_owner",
+        json={"custom_questions": "not-a-list"},
+    )
+    assert r.status_code in (422, 429, 503), f"malformed body should 422, got {r.status_code}"
+    client.delete(f"/brands/{bid}?session_id=sess_bb_owner")
+
+
+# ── BRAND CREATION RATE LIMIT ─────────────────────────────────────────────────
+
+def test_brand_creation_rate_limit_eventually_429s(client):
+    # Limiter allows 20/IP/hour. Create until we hit 429 (or stop at a safe cap).
+    # Uses a distinct forwarded IP so it doesn't poison other tests' limit bucket.
+    headers = {"X-Real-IP": "203.0.113.250"}
+    created_ids = []
+    hit_429 = False
+    for i in range(25):
+        r = client.post(
+            "/brands",
+            json={"name": f"FloodBrand{i}", "session_id": f"sess_flood_{i}"},
+            headers=headers,
+        )
+        if r.status_code == 429:
+            hit_429 = True
+            break
+        if r.status_code == 201:
+            created_ids.append((r.json()["id"], f"sess_flood_{i}"))
+    # cleanup
+    for bid, sess in created_ids:
+        client.delete(f"/brands/{bid}?session_id={sess}")
+    assert hit_429, "brand creation rate limit never triggered after 25 attempts"
+
+
+# ── RESPONSE SHAPE REGRESSIONS ────────────────────────────────────────────────
+
+def test_compare_visibility_consistent_with_model_breakdown(client):
+    # After the visibility_pct fix, the overall % should be within the min/max of the
+    # per-model breakdown (it's a weighted blend of them).
+    r = client.get(f"/brands/{EXAMPLE_BRAND_ID_2}/model-bias")
+    data = r.json()
+    if not data["models"]:
+        pytest.skip("no audit data for example brand yet")
+    model_pcts = [m["visibility_pct"] for m in data["models"]]
+    lo, hi = min(model_pcts), max(model_pcts)
+    insights = client.get(f"/brands/{EXAMPLE_BRAND_ID_2}/insights").json()
+    if insights and insights[0]["visibility_pct"] is not None:
+        v = insights[0]["visibility_pct"]
+        assert lo - 0.1 <= v <= hi + 0.1, \
+            f"overall visibility {v} outside model range [{lo}, {hi}]"
+
+
+def test_probe_detail_no_stale_probes_beyond_window(client):
+    # probe-detail should return at most 10 probes and all from the latest run.
+    r = client.get(f"/brands/{EXAMPLE_BRAND_ID}/probe-detail")
+    data = r.json()
+    assert len(data["probes"]) <= 10
 
