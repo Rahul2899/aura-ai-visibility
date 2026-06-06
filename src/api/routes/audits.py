@@ -71,9 +71,10 @@ async def start_audit(
     if not is_admin:
         ip = get_client_ip(request)
         async with SessionLocal() as session:
-            # Prevent auditing preloaded example brands to save API credits
             brand = await session.get(Brand, brand_id)
-            if brand and brand.session_id == "example":
+            if not brand:
+                raise HTTPException(status_code=404, detail="Brand not found.")
+            if brand.session_id == "example":
                 raise HTTPException(status_code=400, detail="Cannot run new audits on preloaded example brands.")
 
             limit = await session.get(AuditLimit, ip)

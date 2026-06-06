@@ -195,16 +195,22 @@ def test_admin_session_without_key_not_privileged(client):
             "admin session_id without key must only see example brands"
 
 
-def test_admin_wrong_key_rejected(client):
+def test_admin_wrong_key_falls_back_to_example_only(client):
+    # Wrong key → silent fallback to example-only (200), not 401.
+    # Not revealing that admin auth exists is intentionally more secure.
     r = client.get("/brands/compare?session_id=admin",
                    headers={"X-Admin-Key": "definitely-wrong-key"})
-    assert r.status_code == 401
+    assert r.status_code == 200
+    for b in r.json():
+        assert b.get("is_example") is True, "Wrong key must not expose non-example brands"
 
 
-def test_admin_literal_none_as_key_rejected(client):
+def test_admin_literal_none_as_key_falls_back_to_example_only(client):
     r = client.get("/brands/compare?session_id=admin",
                    headers={"X-Admin-Key": "None"})
-    assert r.status_code == 401
+    assert r.status_code == 200
+    for b in r.json():
+        assert b.get("is_example") is True
 
 
 # ── BRAND DATA ENDPOINTS ──────────────────────────────────────────────────────
