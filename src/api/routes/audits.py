@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
-from src.api.main import get_audit_semaphore
+from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
 from src.agents.orchestrator import orchestrate
 from src.models import AuditLimit, Brand
