@@ -43,12 +43,13 @@ async def _run_audit_job(job_id: str, brand_id: int):
 
 
 @router.get("/limit-status")
-async def get_limit_status(request: Request, session_id: str = None):
+async def get_limit_status(request: Request, session_id: str = None, x_admin_key: str = Header(None)):
     """Retrieve audit usage status for current client."""
-    # Admins are exempt from rate limits
-    if session_id == "admin":
+    expected_key = os.environ.get("ADMIN_KEY")
+    is_admin = bool(expected_key and session_id == "admin" and x_admin_key == expected_key)
+    if is_admin:
         return {"limit_reached": False, "count": 0, "max": 9999}
-    
+
     ip = get_client_ip(request)
     async with SessionLocal() as session:
         limit = await session.get(AuditLimit, ip)

@@ -189,10 +189,18 @@ def test_delete_brand_no_session_forbidden(client):
 def test_admin_session_without_key_not_privileged(client):
     r = client.get("/brands/compare?session_id=admin")
     assert r.status_code == 200
-    brands = r.json()
-    for b in brands:
+    for b in r.json():
         assert b.get("is_example") is True, \
             "admin session_id without key must only see example brands"
+
+
+def test_limit_status_admin_without_key_not_bypassed(client):
+    """session_id=admin without X-Admin-Key must NOT bypass rate limit."""
+    r = client.get("/audit/limit-status?session_id=admin")
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get("max") != 9999, \
+        "SECURITY: admin bypass on limit-status without key"
 
 
 def test_admin_wrong_key_falls_back_to_example_only(client):
