@@ -1,14 +1,19 @@
+import asyncio
 import os
 import warnings
-from contextlib import asynccontextmanager
+import structlog
+from contextlib import asynccontextmanager, nullcontext
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import text, select, func
 from src.db import engine, Base, SessionLocal
 from src.db_seed import seed_example_brands
-from src.api.semaphore import init_audit_semaphore
+from src.api.semaphore import init_audit_semaphore, get_audit_semaphore
 from src.api.routes.brands import router as brands_router
 from src.api.routes.audits import router as audits_router
+from src.models import Brand, Insight
+
+log = structlog.get_logger()
 
 _REQUIRED_VARS = ["DATABASE_URL", "ADMIN_KEY"]
 _OPTIONAL_WARN = ["AWS_ACCESS_KEY_ID", "OPENROUTER_API_KEY", "TAVILY_API_KEY"]
@@ -55,13 +60,68 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(stmt))
     async with SessionLocal() as session:
         await seed_example_brands(session)
-    maybe_seed_audits(app)
+
+    # Auto-populate example brands on a fresh deploy so the dashboard isn't empty.
+    # Runs in the background — never blocks startup, never crashes the app on failure.
+    if _autoaudit_enabled():
+        app.state.seed_task = asyncio.create_task(_seed_example_audits())
+
     yield
 
+    task = getattr(app.state, "seed_task", None)
+    if task and not task.done():
+        task.cancel()
 
-def maybe_seed_audits(app: FastAPI) -> None:
-    """Placeholder wired up in the auto-audit feature (task #7)."""
-    pass
+
+def _autoaudit_enabled() -> bool:
+    # Needs Bedrock creds (or an EC2 IAM role) and must be explicitly allowed.
+    if os.environ.get("AUTO_SEED_AUDITS", "true").lower() in ("0", "false", "no"):
+        return False
+    return bool(os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_REGION"))
+
+
+async def _seed_example_audits() -> None:
+    """For each example brand with no insight, run one audit. Bounded by the global
+    semaphore so we never exceed the concurrency cap. Failures are logged, not raised —
+    a fresh deploy with bad creds simply shows empty brands rather than crashing."""
+    # Import here to avoid a circular import at module load (orchestrator imports models).
+    from src.agents.orchestrator import orchestrate
+
+    try:
+        async with SessionLocal() as session:
+            counts = dict(
+                (await session.execute(
+                    select(Insight.brand_id, func.count(Insight.id)).group_by(Insight.brand_id)
+                )).all()
+            )
+            example_brands = (await session.scalars(
+                select(Brand).where(Brand.session_id == "example")
+            )).all()
+            to_seed = [b.id for b in example_brands if counts.get(b.id, 0) == 0]
+
+        if not to_seed:
+            log.info("autoaudit_skip", reason="all example brands already audited")
+            return
+
+        log.info("autoaudit_start", brands=to_seed)
+        sem = get_audit_semaphore()
+
+        async def _run(brand_id: int):
+            try:
+                async with (sem if sem is not None else nullcontext()):
+                    async with SessionLocal() as session:
+                        await orchestrate(session, brand_id)
+                log.info("autoaudit_brand_done", brand_id=brand_id)
+            except Exception as e:
+                log.warning("autoaudit_brand_failed", brand_id=brand_id, error=str(e))
+
+        await asyncio.gather(*[_run(bid) for bid in to_seed])
+        log.info("autoaudit_complete")
+    except asyncio.CancelledError:
+        log.info("autoaudit_cancelled")
+        raise
+    except Exception as e:
+        log.warning("autoaudit_failed", error=str(e))
 
 
 app = FastAPI(title="Aura AI API", lifespan=lifespan)
