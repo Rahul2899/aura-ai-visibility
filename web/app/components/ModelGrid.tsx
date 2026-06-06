@@ -2,7 +2,7 @@
 
 import { friendlyName, providerKey } from "../lib/models";
 
-type Model = { model: string; visibility_pct: number };
+type Model = { model: string; visibility_pct: number; avg_latency_ms?: number | null };
 
 const PROVIDER_THEMES: Record<string, { label: string; badgeClass: string; dotClass: string }> = {
   amazon: {
@@ -37,10 +37,26 @@ const PROVIDER_THEMES: Record<string, { label: string; badgeClass: string; dotCl
   },
 };
 
+function LatencyBadge({ ms }: { ms: number | null | undefined }) {
+  if (!ms) return null;
+  const label = ms < 2000 ? "Fast" : ms < 5000 ? "Moderate" : "Slow";
+  const cls =
+    ms < 2000
+      ? "text-emerald-600 bg-emerald-50 border-emerald-200"
+      : ms < 5000
+      ? "text-amber-600 bg-amber-50 border-amber-200"
+      : "text-red-600 bg-red-50 border-red-200";
+  return (
+    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${cls}`}>
+      {label} · {(ms / 1000).toFixed(1)}s
+    </span>
+  );
+}
+
 export default function ModelGrid({ models }: { models: Model[] }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="region" aria-label="Model performance metrics">
-      {models.map(({ model, visibility_pct }) => {
+      {models.map(({ model, visibility_pct, avg_latency_ms }) => {
         const pct = visibility_pct;
         const scoreColor = pct >= 60 ? "var(--green)" : pct >= 35 ? "var(--amber)" : "var(--red)";
         const key = providerKey(model);
@@ -53,7 +69,6 @@ export default function ModelGrid({ models }: { models: Model[] }) {
             style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}
           >
             <div className="flex items-center justify-between mb-3">
-              {/* Custom styled provider badge */}
               <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border ${theme.badgeClass} flex items-center gap-1.5`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${theme.dotClass}`} />
                 {theme.label}
@@ -63,6 +78,9 @@ export default function ModelGrid({ models }: { models: Model[] }) {
               </span>
             </div>
             <p className="text-slate-700 text-xs font-semibold leading-snug">{friendlyName(model)}</p>
+            <div className="mt-1">
+              <LatencyBadge ms={avg_latency_ms} />
+            </div>
             <div className="mt-3 w-full rounded-full h-1.5 bg-slate-100 overflow-hidden" style={{ border: "1px solid var(--border-solid)" }}>
               <div
                 className="h-full rounded-full transition-all duration-1000 ease-out"

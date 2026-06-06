@@ -18,15 +18,16 @@ import {
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function getData(id: string) {
-  const [brands, insights, modelBias, probePerf, compare, probeDetail] = await Promise.all([
+  const [brands, insights, modelBias, probePerf, compare, probeDetail, darkMatter] = await Promise.all([
     fetch(`${API}/brands`, { cache: "no-store" }).then(r => r.json()).catch(() => []),
     fetch(`${API}/brands/${id}/insights`, { cache: "no-store" }).then(r => r.json()).catch(() => []),
     fetch(`${API}/brands/${id}/model-bias`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ models: [] })),
     fetch(`${API}/brands/${id}/probe-performance`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ top: [], bottom: [] })),
     fetch(`${API}/brands/compare`, { cache: "no-store" }).then(r => r.json()).catch(() => []),
     fetch(`${API}/brands/${id}/probe-detail`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ probes: [], audit_date: null })),
+    fetch(`${API}/brands/${id}/dark-matter`, { cache: "no-store" }).then(r => r.json()).catch(() => ({ dark_matter_count: 0, total_probes: 0, probes: [] })),
   ]);
-  return { brands, insights, modelBias, probePerf, compare, probeDetail };
+  return { brands, insights, modelBias, probePerf, compare, probeDetail, darkMatter };
 }
 
 export default async function BrandPage({
@@ -38,7 +39,7 @@ export default async function BrandPage({
 }) {
   const { id } = await params;
   const { autostart } = await searchParams;
-  const { brands, insights, modelBias, probePerf, compare, probeDetail } = await getData(id);
+  const { brands, insights, modelBias, probePerf, compare, probeDetail, darkMatter } = await getData(id);
 
   const brand = brands.find((b: { id: number }) => b.id === Number(id));
   if (!brand) notFound();
@@ -112,6 +113,9 @@ export default async function BrandPage({
                     </p>
                     <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mt-1.5 flex items-center gap-1">
                       vs last run <Info className="w-3.5 h-3.5 text-slate-400" />
+                    </span>
+                    <span className="text-[10px] text-slate-400 mt-0.5 font-semibold">
+                      {trend > 5 ? "↑ Gaining visibility" : trend < -5 ? "↓ Losing ground" : "→ Stable"}
                     </span>
                   </div>
                 )}
@@ -222,6 +226,42 @@ export default async function BrandPage({
             {/* Probe transparency — what questions were asked */}
             {probeDetail.probes.length > 0 && (
               <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date} />
+            )}
+
+            {/* Dark Matter — zero-mention opportunity queries */}
+            {darkMatter.dark_matter_count > 0 && (
+              <div className="card p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-slate-800 font-bold text-sm">Dark Matter Queries</p>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      Questions where <span className="font-bold text-slate-600">no AI model</span> mentions your brand
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
+                    {darkMatter.dark_matter_count} of {darkMatter.total_probes} probes
+                  </span>
+                </div>
+                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 mb-4">
+                  <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                    These are your biggest opportunity. AI models answer these questions without naming any brand —
+                    including yours. Getting mentioned here means zero competition.
+                  </p>
+                </div>
+                <div className="space-y-2.5">
+                  {darkMatter.probes.map((p: { question: string; times_tested: number }, i: number) => (
+                    <div key={i} className="flex items-start gap-3 px-3 py-2.5 rounded-lg border border-dashed border-slate-300 bg-white">
+                      <span className="text-slate-300 font-bold text-xs tabular mt-0.5 flex-shrink-0">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <p className="text-sm text-slate-600 font-medium flex-1 leading-relaxed">{p.question}</p>
+                      <span className="text-[10px] text-slate-400 font-semibold flex-shrink-0 mt-0.5">
+                        0/{p.times_tested} models
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Historical runs matrix */}

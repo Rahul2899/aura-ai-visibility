@@ -241,11 +241,49 @@ async def get_model_bias(brand_id: int):
         )
         if not latest or not latest.model_breakdown:
             return {"brand": brand.name, "models": []}
-        models = [
-            {"model": m, "visibility_pct": v}
-            for m, v in sorted(latest.model_breakdown.items(), key=lambda x: -x[1])
-        ]
+
+        prompt_ids = list(await session.scalars(
+            select(Prompt.id).where(Prompt.brand_id == brand_id)
+        ))
+        latency_by_model: dict[str, list[int]] = {}
+        if prompt_ids:
+            runs = (await session.scalars(
+                select(Run).where(Run.prompt_id.in_(prompt_ids), Run.latency_ms.isnot(None))
+            )).all()
+            for r in runs:
+                latency_by_model.setdefault(r.model, []).append(r.latency_ms)
+
+        models = []
+        for m, v in sorted(latest.model_breakdown.items(), key=lambda x: -x[1]):
+            lats = latency_by_model.get(m, [])
+            avg_latency = round(sum(lats) / len(lats)) if lats else None
+            models.append({"model": m, "visibility_pct": v, "avg_latency_ms": avg_latency})
         return {"brand": brand.name, "models": models}
+
+
+@router.get("/{brand_id}/dark-matter")
+async def get_dark_matter(brand_id: int):
+    """Probes where the brand was never mentioned — pure opportunity queries."""
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(404, "Brand not found")
+
+        probes = (await session.scalars(
+            select(ProbePerformance)
+            .where(ProbePerformance.brand_id == brand_id, ProbePerformance.run_count >= 1)
+        )).all()
+
+        dark = [p for p in probes if p.hit_count == 0]
+        return {
+            "dark_matter_count": len(dark),
+            "total_probes": len(probes),
+            "dark_matter_pct": round(len(dark) / max(len(probes), 1) * 100),
+            "probes": [
+                {"question": p.prompt_text, "times_tested": p.run_count}
+                for p in dark[:5]
+            ],
+        }
 
 
 @router.get("/{brand_id}/probe-detail")
