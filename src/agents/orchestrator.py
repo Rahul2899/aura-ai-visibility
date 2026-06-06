@@ -8,7 +8,7 @@ from datetime import datetime
 
 import boto3
 import httpx
-from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Brand, Insight, ProbePerformance, ApiCall
@@ -121,6 +121,17 @@ def _safe_https_url(domain: str) -> str | None:
 ORCHESTRATOR_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 MAX_STEPS = 30
 MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") for m in BEDROCK_MODELS]
+
+
+def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
+    """Overall visibility % = total brand mentions across every (probe × model)
+    result divided by the total number of results. Returns None if no results
+    (so an audit with zero successful probes is 'unknown', not 0%)."""
+    total = sum(len(hits) for hits in model_hits.values())
+    if total == 0:
+        return None
+    hits = sum(sum(h) for h in model_hits.values())
+    return round(hits / total * 100, 1)
 
 SYSTEM_PROMPT = """You are an AI brand visibility analyst. AI models learn from web content — your job is to measure how visible a brand is in AI responses AND tell the marketing team how to improve it.
 
@@ -269,21 +280,23 @@ async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str
     hit_count = sum(1 for v in model_breakdown.values() if v)
     hit = hit_count > 0
 
-    # Update probe performance (no LLM — pure arithmetic)
+    # Atomic upsert keyed on the unique (brand_id, prompt_hash) constraint. Using
+    # ON CONFLICT avoids a SELECT-then-INSERT race when two audits of the same brand
+    # run concurrently (they would otherwise create duplicate rows that split run_count).
     h = hashlib.sha256(prompt_text.encode()).hexdigest()
-    perf = await session.scalar(
-        select(ProbePerformance).where(ProbePerformance.brand_id == brand_id, ProbePerformance.prompt_hash == h)
+    stmt = pg_insert(ProbePerformance).values(
+        brand_id=brand_id, prompt_hash=h, prompt_text=prompt_text,
+        run_count=1, hit_count=int(hit), last_used=datetime.utcnow(),
     )
-    if perf:
-        perf.run_count += 1
-        perf.hit_count += int(hit)
-        perf.last_used = datetime.utcnow()
-    else:
-        session.add(ProbePerformance(
-            brand_id=brand_id, prompt_hash=h, prompt_text=prompt_text,
-            run_count=1, hit_count=int(hit),
-        ))
-
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_probe_brand_hash",
+        set_={
+            "run_count": ProbePerformance.run_count + 1,
+            "hit_count": ProbePerformance.hit_count + int(hit),
+            "last_used": datetime.utcnow(),
+        },
+    )
+    await session.execute(stmt)
     await session.flush()
 
     return {
@@ -382,20 +395,24 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
                 m: round(sum(hits) / len(hits) * 100, 1)
                 for m, hits in model_hits.items() if hits
             }
+            # Compute visibility from actual probe results, NOT from Haiku's self-reported
+            # number — the model can miscalculate. Overall visibility = total hits across
+            # every (probe × model) result divided by total results.
+            visibility_pct = compute_visibility(model_hits)
             insight = Insight(
                 brand_id=brand_id,
                 summary=insight_data["summary"],
                 key_findings=insight_data.get("key_findings", []),
                 recommendations=insight_data.get("recommendations", []),
                 probe_count=probe_count,
-                visibility_pct=insight_data.get("visibility_pct"),
+                visibility_pct=visibility_pct,
                 model_breakdown=model_breakdown,
                 raw_tool_calls=tool_calls_log,
             )
             session.add(insight)
             await session.commit()
             log.info("orchestrate_done", brand_id=brand_id, probe_count=probe_count,
-                     visibility_pct=insight_data.get("visibility_pct"))
+                     visibility_pct=visibility_pct)
             return insight
 
         if response["stopReason"] == "end_turn":

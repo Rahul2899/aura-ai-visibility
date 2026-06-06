@@ -1,13 +1,19 @@
 import os
-from fastapi import APIRouter, HTTPException, Header
+from datetime import timedelta
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, delete as sql_delete
 from src.api.auth import is_admin, require_read, require_owner_or_admin
+from src.api.ratelimit import SlidingWindowLimiter, client_ip
 from src.db import SessionLocal
 from src.models import Brand, Prompt, Run, Mention, Insight, ProbePerformance
 from src.pipeline.scorer import score_brand
 
 router = APIRouter(prefix="/brands")
+
+# Cap brand creation so a bot cannot flood the DB. 20 new brands per IP per hour is
+# far above any legitimate use (rate limit allows only 2 audits anyway).
+_create_limiter = SlidingWindowLimiter(max_events=20, window_seconds=3600)
 
 INDUSTRIES = [
     "HR Tech / Recruiting",
@@ -113,7 +119,12 @@ async def list_brands(session_id: str = None, x_admin_key: str = Header(None)):
 
 
 @router.post("", status_code=201)
-async def create_brand(body: BrandCreate):
+async def create_brand(body: BrandCreate, request: Request):
+    if not _create_limiter.allow(client_ip(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many brands created. Please wait before adding more.",
+        )
     async with SessionLocal() as session:
         brand = Brand(
             name=body.name,
@@ -309,9 +320,18 @@ async def get_probe_detail(brand_id: int, session_id: str = None, x_admin_key: s
         if not latest_insight:
             return {"probes": [], "audit_date": None}
 
+        # Show only probes from the latest audit. Probes are updated (last_used = now)
+        # during the run, then the insight is committed seconds later; so probes from the
+        # latest audit have last_used within a short window before the insight timestamp.
+        # The 10-minute buffer comfortably covers a full audit run.
+        run_window_start = latest_insight.created_at - timedelta(minutes=10)
         probes = (await session.scalars(
             select(ProbePerformance)
-            .where(ProbePerformance.brand_id == brand_id, ProbePerformance.run_count >= 1)
+            .where(
+                ProbePerformance.brand_id == brand_id,
+                ProbePerformance.run_count >= 1,
+                ProbePerformance.last_used >= run_window_start,
+            )
             .order_by(ProbePerformance.last_used.desc())
             .limit(10)
         )).all()

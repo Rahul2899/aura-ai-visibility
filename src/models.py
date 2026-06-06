@@ -106,6 +106,9 @@ class Insight(Base):
 
 class ProbePerformance(Base):
     __tablename__ = "probe_performance"
+    __table_args__ = (
+        UniqueConstraint("brand_id", "prompt_hash", name="uq_probe_brand_hash"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id"), nullable=False)
@@ -119,6 +122,8 @@ class ProbePerformance(Base):
 class AuditLimit(Base):
     __tablename__ = "audit_limits"
 
-    ip_address: Mapped[str] = mapped_column(String(100), primary_key=True)
+    # Rate-limit key: a session_id when available, else "ip:<addr>". Named generically
+    # because it is no longer always an IP (see src.api.auth.limit_key).
+    rate_key: Mapped[str] = mapped_column(String(100), primary_key=True)
     audit_count: Mapped[int] = mapped_column(Integer, default=0)
     last_audit_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

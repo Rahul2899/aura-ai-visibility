@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from src.api.auth import is_admin, limit_key, require_owner_or_admin
+from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
 from src.agents.orchestrator import orchestrate
@@ -17,13 +18,6 @@ router = APIRouter(prefix="/audit")
 
 _jobs: dict = {}
 _job_counter = 0
-
-
-def get_client_ip(request: Request) -> str:
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[-1].strip()
-    return request.client.host if request.client else "unknown"
 
 
 async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None):
@@ -49,7 +43,7 @@ async def get_limit_status(request: Request, session_id: str = None, x_admin_key
     if is_admin(session_id, x_admin_key):
         return {"limit_reached": False, "count": 0, "max": 9999}
 
-    key = limit_key(session_id, get_client_ip(request))
+    key = limit_key(session_id, client_ip(request))
     async with SessionLocal() as session:
         limit = await session.get(AuditLimit, key)
         count = limit.audit_count if limit else 0
@@ -74,7 +68,7 @@ async def start_audit(
         require_owner_or_admin(brand, session_id, x_admin_key)
 
         if not is_admin(session_id, x_admin_key):
-            key = limit_key(session_id, get_client_ip(request))
+            key = limit_key(session_id, client_ip(request))
             limit = await session.get(AuditLimit, key)
             if limit and limit.audit_count >= 2:
                 raise HTTPException(
@@ -85,7 +79,7 @@ async def start_audit(
                 limit.audit_count += 1
                 limit.last_audit_at = datetime.utcnow()
             else:
-                session.add(AuditLimit(ip_address=key, audit_count=1, last_audit_at=datetime.utcnow()))
+                session.add(AuditLimit(rate_key=key, audit_count=1, last_audit_at=datetime.utcnow()))
             await session.commit()
 
     sem = get_audit_semaphore()
