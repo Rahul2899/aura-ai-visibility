@@ -40,6 +40,31 @@ _MIGRATIONS = [
             ALTER TABLE audit_limits RENAME COLUMN ip_address TO rate_key;
         END IF;
     END $$;""",
+    # Deduplicate probe_performance before adding the unique constraint. Old buggy code
+    # (SELECT-then-INSERT race) could create duplicate (brand_id, prompt_hash) rows.
+    # Merge counts into the lowest-id row, then drop the extras.
+    """UPDATE probe_performance p SET
+            run_count = agg.total_runs,
+            hit_count = agg.total_hits
+        FROM (
+            SELECT brand_id, prompt_hash,
+                   MIN(id) AS keep_id,
+                   SUM(run_count) AS total_runs,
+                   SUM(hit_count) AS total_hits
+            FROM probe_performance
+            GROUP BY brand_id, prompt_hash
+            HAVING COUNT(*) > 1
+        ) agg
+        WHERE p.id = agg.keep_id;""",
+    """DELETE FROM probe_performance p USING (
+            SELECT brand_id, prompt_hash, MIN(id) AS keep_id
+            FROM probe_performance
+            GROUP BY brand_id, prompt_hash
+            HAVING COUNT(*) > 1
+        ) agg
+        WHERE p.brand_id = agg.brand_id
+          AND p.prompt_hash = agg.prompt_hash
+          AND p.id <> agg.keep_id;""",
     # Unique constraint on probe_performance(brand_id, prompt_hash) to stop duplicate rows
     """DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_probe_brand_hash') THEN
