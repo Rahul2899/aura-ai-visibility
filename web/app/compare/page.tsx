@@ -242,7 +242,7 @@ export default function ComparePage() {
         <div className="card p-6 space-y-5">
           <div>
             <h2 className="text-slate-900 font-bold text-sm">Select Brands</h2>
-            <p className="text-slate-500 text-xs mt-0.5 font-semibold font-semibold">Toggle brands and trigger comparison runs</p>
+            <p className="text-slate-500 text-xs mt-0.5 font-semibold">Pick brands to compare side-by-side, then run audits</p>
           </div>
 
           <div className="flex flex-wrap gap-2.5">
@@ -390,7 +390,8 @@ export default function ComparePage() {
             {/* Model matrix comparison */}
             {allModelIds.length > 0 && (
               <div className="card p-6 overflow-hidden">
-                <p className="text-slate-500 text-xs uppercase font-bold tracking-wider mb-5">Model Bias Matrix</p>
+                <p className="text-slate-500 text-xs uppercase font-bold tracking-wider">Model Bias Matrix</p>
+                <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">Each brand&apos;s visibility in each AI model — spot which models favor which brand</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -533,7 +534,7 @@ export default function ComparePage() {
             {data.some(d => d.insight?.key_findings?.length) && (
               <div className="card p-6">
                 <p className="text-slate-500 text-xs uppercase font-bold tracking-wider mb-5">Key Findings Comparison</p>
-                <div className="grid gap-6 md:grid-cols-2" style={{ gridTemplateColumns: `repeat(${data.length}, 1fr)` }}>
+                <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                   {data.map(d => (
                     <div key={d.id} className="space-y-4">
                       <p className="text-sm font-extrabold text-slate-900 border-b pb-2 border-slate-100">{d.name}</p>

@@ -154,30 +154,30 @@ export default function BrandPage() {
 
   return (
     <main className="min-h-screen animate-fade-in" style={{ background: "var(--bg)" }}>
-      <header className="border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md"
+      <header className="border-b px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between gap-2 sticky top-0 z-10 backdrop-blur-md"
         style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.92)" }}>
-        <div className="flex items-center gap-4">
-          <Link href="/" className="btn-ghost py-1.5 px-3 flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 font-semibold">
-            <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          <Link href="/" className="btn-ghost py-1.5 px-2.5 sm:px-3 flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 font-semibold flex-shrink-0">
+            <ArrowLeft className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Dashboard</span>
           </Link>
-          <div className="w-px h-4 bg-slate-200" />
-          <h1 className="font-bold text-base text-slate-900 tracking-tight">{brand.name}</h1>
-          {brand.industry && <span className="text-slate-400 text-sm font-semibold">{brand.industry.split("/")[0].trim()}</span>}
+          <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
+          <h1 className="font-bold text-base text-slate-900 tracking-tight truncate">{brand.name}</h1>
+          {brand.industry && <span className="hidden md:inline text-slate-400 text-sm font-semibold flex-shrink-0">{brand.industry.split("/")[0].trim()}</span>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {latest && (
             <button onClick={shareReport}
-              className="btn-ghost py-1.5 px-3 flex items-center gap-1.5 text-xs font-semibold"
+              className="btn-ghost py-1.5 px-2.5 sm:px-3 flex items-center gap-1.5 text-xs font-semibold"
               title="Get a public read-only link">
               <Share2 className="w-3.5 h-3.5 text-[var(--accent)]" />
-              {shareLabel}
+              <span className="hidden sm:inline">{shareLabel}</span>
             </button>
           )}
           <AuditButton brandId={Number(id)} />
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-5xl mx-auto px-5 sm:px-6 py-8 space-y-6">
         {!latest ? (
           <div className="card p-16 text-center" style={{ borderStyle: "dashed" }}>
             {autostart === "1" ? (
@@ -268,7 +268,8 @@ export default function BrandPage() {
 
             {modelBias.models?.length > 0 && (
               <div className="card p-6">
-                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-5">Model Breakdown</p>
+                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Model Breakdown</p>
+                <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">How visible your brand is in each AI model individually</p>
                 <ModelGrid models={modelBias.models} />
               </div>
             )}
@@ -321,11 +322,11 @@ export default function BrandPage() {
               <div className="card p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <p className="text-slate-800 font-bold text-sm">Dark Matter Queries</p>
-                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentions your brand</p>
+                    <p className="text-slate-800 font-bold text-sm">Where you&apos;re invisible <span className="text-slate-400 font-medium">· Dark Matter</span></p>
+                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand — pure opportunity</p>
                   </div>
                   <span className="text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
-                    {darkMatter.dark_matter_count} of {darkMatter.total_probes} probes
+                    {darkMatter.dark_matter_count} of {darkMatter.total_probes} questions
                   </span>
                 </div>
                 <div className="space-y-2.5">
