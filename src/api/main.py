@@ -33,6 +33,12 @@ def _check_env():
 # constraints to existing tables, so those are handled explicitly here.
 _MIGRATIONS = [
     "ALTER TABLE brands ADD COLUMN IF NOT EXISTS industry VARCHAR(100)",
+    "ALTER TABLE brands ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)",
+    """DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_brand_share_token') THEN
+            ALTER TABLE brands ADD CONSTRAINT uq_brand_share_token UNIQUE (share_token);
+        END IF;
+    END $$;""",
     # Rename audit_limits.ip_address -> rate_key (the key is no longer always an IP)
     """DO $$ BEGIN
         IF EXISTS (SELECT 1 FROM information_schema.columns

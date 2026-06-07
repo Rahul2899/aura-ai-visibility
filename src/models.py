@@ -25,6 +25,9 @@ class Brand(Base):
     industry: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     competitors: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
     session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Opaque token for read-only public sharing of this brand's report. Null until
+    # the owner generates a share link.
+    share_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
 
     prompts: Mapped[list["Prompt"]] = relationship(back_populates="brand")
 

@@ -10,7 +10,7 @@ import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
 import { getSessionId, getAdminKey } from "../../lib/session";
-import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles } from "lucide-react";
+import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -46,6 +46,25 @@ export default function BrandPage() {
   const [darkMatter, setDarkMatter] = useState<any>({ dark_matter_count: 0, total_probes: 0, probes: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shareLabel, setShareLabel] = useState("Share");
+
+  async function shareReport() {
+    try {
+      const res = await fetch(`${API}/brands/${id}/share?${sessQs()}`, {
+        method: "POST",
+        headers: apiHeaders(),
+      });
+      if (!res.ok) { setShareLabel("Failed"); return; }
+      const { token } = await res.json();
+      const url = `${window.location.origin}/share/${token}`;
+      await navigator.clipboard.writeText(url).catch(() => {});
+      setShareLabel("Link copied!");
+      setTimeout(() => setShareLabel("Share"), 2500);
+    } catch {
+      setShareLabel("Failed");
+      setTimeout(() => setShareLabel("Share"), 2500);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,7 +164,17 @@ export default function BrandPage() {
           <h1 className="font-bold text-base text-slate-900 tracking-tight">{brand.name}</h1>
           {brand.industry && <span className="text-slate-400 text-sm font-semibold">{brand.industry.split("/")[0].trim()}</span>}
         </div>
-        <AuditButton brandId={Number(id)} />
+        <div className="flex items-center gap-2">
+          {latest && (
+            <button onClick={shareReport}
+              className="btn-ghost py-1.5 px-3 flex items-center gap-1.5 text-xs font-semibold"
+              title="Get a public read-only link">
+              <Share2 className="w-3.5 h-3.5 text-[var(--accent)]" />
+              {shareLabel}
+            </button>
+          )}
+          <AuditButton brandId={Number(id)} />
+        </div>
       </header>
 
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">

@@ -477,30 +477,6 @@ def test_audit_malformed_custom_questions_not_500(client):
     client.delete(f"/brands/{bid}?session_id=sess_bb_owner")
 
 
-# ── BRAND CREATION RATE LIMIT ─────────────────────────────────────────────────
-
-def test_brand_creation_rate_limit_eventually_429s(client):
-    # Limiter allows 20/IP/hour. Create until we hit 429 (or stop at a safe cap).
-    # Uses a distinct forwarded IP so it doesn't poison other tests' limit bucket.
-    headers = {"X-Real-IP": "203.0.113.250"}
-    created_ids = []
-    hit_429 = False
-    for i in range(25):
-        r = client.post(
-            "/brands",
-            json={"name": f"FloodBrand{i}", "session_id": f"sess_flood_{i}"},
-            headers=headers,
-        )
-        if r.status_code == 429:
-            hit_429 = True
-            break
-        if r.status_code == 201:
-            created_ids.append((r.json()["id"], f"sess_flood_{i}"))
-    # cleanup
-    for bid, sess in created_ids:
-        client.delete(f"/brands/{bid}?session_id={sess}")
-    assert hit_429, "brand creation rate limit never triggered after 25 attempts"
-
 
 # ── RESPONSE SHAPE REGRESSIONS ────────────────────────────────────────────────
 
@@ -525,4 +501,68 @@ def test_probe_detail_no_stale_probes_beyond_window(client):
     r = client.get(f"/brands/{EXAMPLE_BRAND_ID}/probe-detail")
     data = r.json()
     assert len(data["probes"]) <= 10
+
+
+# ── SHAREABLE REPORT LINKS ────────────────────────────────────────────────────
+
+def test_share_owner_can_create_and_public_can_read(client):
+    created = client.post("/brands", json={"name": "ShareCo", "session_id": "sess_share_owner"}, headers={"X-Real-IP": "198.51.100.10"})
+    bid = created.json()["id"]
+    # owner generates token
+    r = client.post(f"/brands/{bid}/share?session_id=sess_share_owner")
+    assert r.status_code == 200
+    token = r.json()["token"]
+    assert token
+    # public read, no session needed
+    pub = client.get(f"/brands/share/{token}")
+    assert pub.status_code == 200
+    assert pub.json()["brand"] == "ShareCo"
+    # public report must NOT leak session_id
+    assert "session_id" not in pub.json()
+    client.delete(f"/brands/{bid}?session_id=sess_share_owner")
+
+
+def test_share_token_is_stable_on_repeat(client):
+    created = client.post("/brands", json={"name": "StableShare", "session_id": "sess_stable"}, headers={"X-Real-IP": "198.51.100.11"})
+    bid = created.json()["id"]
+    t1 = client.post(f"/brands/{bid}/share?session_id=sess_stable").json()["token"]
+    t2 = client.post(f"/brands/{bid}/share?session_id=sess_stable").json()["token"]
+    assert t1 == t2, "repeated share calls must return the same token"
+    client.delete(f"/brands/{bid}?session_id=sess_stable")
+
+
+def test_share_non_owner_forbidden(client):
+    created = client.post("/brands", json={"name": "PrivShare", "session_id": "sess_priv_owner"}, headers={"X-Real-IP": "198.51.100.12"})
+    bid = created.json()["id"]
+    r = client.post(f"/brands/{bid}/share?session_id=sess_attacker")
+    assert r.status_code == 403, "non-owner must not create a share link"
+    client.delete(f"/brands/{bid}?session_id=sess_priv_owner")
+
+
+def test_share_invalid_token_404(client):
+    r = client.get("/brands/share/this-token-does-not-exist-xyz")
+    assert r.status_code == 404
+
+
+# ── BRAND CREATION RATE LIMIT ─────────────────────────────────────────────────
+# NOTE: defined LAST on purpose. The limiter is per-process/in-memory and (through
+# nginx) keyed on the real client IP, so flooding it consumes the shared budget for
+# the whole test run. Running it last avoids poisoning the brand-creation tests above.
+
+def test_brand_creation_rate_limit_eventually_429s(client):
+    created_ids = []
+    hit_429 = False
+    for i in range(40):
+        r = client.post(
+            "/brands",
+            json={"name": f"FloodBrand{i}", "session_id": f"sess_flood_{i}"},
+        )
+        if r.status_code == 429:
+            hit_429 = True
+            break
+        if r.status_code == 201:
+            created_ids.append((r.json()["id"], f"sess_flood_{i}"))
+    for bid, sess in created_ids:
+        client.delete(f"/brands/{bid}?session_id={sess}")
+    assert hit_429, "brand creation rate limit never triggered"
 

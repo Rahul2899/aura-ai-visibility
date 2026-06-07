@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import timedelta
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, field_validator
@@ -11,9 +12,9 @@ from src.pipeline.scorer import score_brand
 
 router = APIRouter(prefix="/brands")
 
-# Cap brand creation so a bot cannot flood the DB. 20 new brands per IP per hour is
-# far above any legitimate use (rate limit allows only 2 audits anyway).
-_create_limiter = SlidingWindowLimiter(max_events=20, window_seconds=3600)
+# Cap brand creation so a bot cannot flood the DB. 30 new brands per IP per hour is
+# far above any legitimate use (the audit limit allows only 2 audits per session).
+_create_limiter = SlidingWindowLimiter(max_events=30, window_seconds=3600)
 
 INDUSTRIES = [
     "HR Tech / Recruiting",
@@ -61,6 +62,54 @@ def _brand_scope(stmt, session_id, x_admin_key):
 @router.get("/industries")
 async def list_industries():
     return INDUSTRIES
+
+
+async def _build_report(session, brand: Brand) -> dict:
+    """Assemble the read-only report payload for a brand: latest insight + model
+    breakdown. Shared by the owner view and the public share link."""
+    latest = await session.scalar(
+        select(Insight).where(Insight.brand_id == brand.id)
+        .order_by(Insight.created_at.desc())
+    )
+    if not latest:
+        return {"brand": brand.name, "industry": brand.industry, "insight": None}
+    return {
+        "brand": brand.name,
+        "industry": brand.industry,
+        "insight": {
+            "visibility_pct": latest.visibility_pct,
+            "summary": latest.summary,
+            "key_findings": latest.key_findings or [],
+            "recommendations": latest.recommendations or [],
+            "model_breakdown": latest.model_breakdown or {},
+            "probe_count": latest.probe_count,
+            "created_at": latest.created_at.isoformat(),
+        },
+    }
+
+
+@router.get("/share/{token}")
+async def get_shared_report(token: str):
+    """Public, read-only report for a brand by its share token. No session required."""
+    async with SessionLocal() as session:
+        brand = await session.scalar(select(Brand).where(Brand.share_token == token))
+        if not brand:
+            raise HTTPException(404, "Shared report not found")
+        return await _build_report(session, brand)
+
+
+@router.post("/{brand_id}/share")
+async def create_share_link(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+    """Owner generates (or returns existing) a read-only share token for a brand."""
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(404, "Brand not found")
+        require_owner_or_admin(brand, session_id, x_admin_key)
+        if not brand.share_token:
+            brand.share_token = secrets.token_urlsafe(24)
+            await session.commit()
+        return {"token": brand.share_token}
 
 
 @router.get("/compare")
