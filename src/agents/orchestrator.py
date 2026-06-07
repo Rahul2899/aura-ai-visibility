@@ -258,23 +258,30 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             await client.close()
 
 
-async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str, target_brand: str, on_event=None) -> dict:
-    """Run one probe across all models. Updates ProbePerformance. Returns summary dict."""
-    semaphore = asyncio.Semaphore(10)
+# Bounds the TOTAL number of in-flight model calls across all probes running
+# concurrently. With ~10 probes x 4 models = ~40 calls, a cap of 12 keeps Bedrock
+# from throttling while still collapsing the old sequential ~170s into one parallel wave.
+_PROBE_CALL_SEMAPHORE = asyncio.Semaphore(12)
 
+
+async def _probe_all_models(prompt_text: str, target_brand: str, on_event=None) -> list[dict]:
+    """Pure I/O: run one probe's prompt across every model in parallel. Touches NO DB —
+    so many probes can run this concurrently. Returns the raw per-model result dicts;
+    the caller persists them serially on the shared session via `_persist_probe`."""
     async def bounded(p, m):
-        async with semaphore:
+        async with _PROBE_CALL_SEMAPHORE:
             return await _probe_one_model(p, m, prompt_text, target_brand, on_event=on_event)
 
-    results = await asyncio.gather(*[bounded(p, m) for m, p in MODEL_CONFIGS])
+    return await asyncio.gather(*[bounded(p, m) for m, p in MODEL_CONFIGS])
 
-    # Only models that actually responded count toward the score. Failed calls are excluded
-    # from the denominator — a model that errored is "unknown", not a "no".
+
+def _persist_probe(session: AsyncSession, brand_id: int, prompt_text: str, results: list[dict]) -> tuple[dict, object]:
+    """Stage one probe's DB writes on the shared session. Adds the ApiCall rows directly
+    (synchronous, safe) and returns (summary, upsert_stmt). The caller awaits the returned
+    upsert statement serially, so the async session is only ever touched from one task."""
     model_breakdown = {}
-    total_cost = 0.0
     for r in results:
         cost = (r["tokens_in"] * 0.00025 + r["tokens_out"] * 0.00125) / 1000 if r["provider"] == "bedrock" else 0.0
-        total_cost += cost
         session.add(ApiCall(model=r["model"], provider=r["provider"], latency_ms=r["latency_ms"],
                             tokens_in=r["tokens_in"], tokens_out=r["tokens_out"], cost_usd=cost))
         if not r["failed"]:
@@ -291,8 +298,7 @@ async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str
     stmt = pg_insert(ProbePerformance).values(
         brand_id=brand_id, prompt_hash=h, prompt_text=prompt_text,
         run_count=1, hit_count=int(hit), last_used=datetime.utcnow(),
-    )
-    stmt = stmt.on_conflict_do_update(
+    ).on_conflict_do_update(
         constraint="uq_probe_brand_hash",
         set_={
             "run_count": ProbePerformance.run_count + 1,
@@ -300,16 +306,14 @@ async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str
             "last_used": datetime.utcnow(),
         },
     )
-    await session.execute(stmt)
-    await session.flush()
-
-    return {
+    summary = {
         "prompt": prompt_text,
         "models_mentioned": hit_count,
         "models_checked": succeeded,
         "visibility_pct": round(hit_count / succeeded * 100, 1) if succeeded else 0.0,
         "breakdown": {m: "yes" if v else "no" for m, v in model_breakdown.items()},
     }
+    return summary, stmt
 
 
 async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
@@ -332,38 +336,37 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
     return context
 
 
-QUESTION_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when researching what to buy in a category. Given a brand's context, output 8-10 such questions.
+# Category questions are generated WITHOUT the brand name — this is the anti-bias
+# core. If the generator knew the brand, it would (even unconsciously) shape questions
+# around that brand's strengths, and the brand would surface ~100% of the time. By
+# describing only the CATEGORY and a buyer scenario, the questions are neutral, so the
+# score reflects whether the brand genuinely surfaces on its own.
+CATEGORY_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when deciding what product or service to buy in a category. You are NOT told any specific brand on purpose — write questions a neutral shopper would ask about the CATEGORY itself.
 
-You will receive the brand's name, industry, competitors, and web_context (live search results). UNDERSTAND the brand first: what category it competes in, what it sells, who buys it, its price tier, its real competitors. Then write questions that flow from that understanding.
+You receive an industry/category and (optionally) typical buyer context. Write 8 questions that:
+- Describe a real need and ask what to use ("best applicant tracking system for a 200-person company", "which CRM is easiest for a small sales team to set up").
+- Cover varied buyer scenarios: company size, budget, specific feature needs, integrations, ease of use, industry fit.
+- Do NOT favor any particular vendor or describe one product's exact niche. Stay generic to the category.
+- Read like a real person: one sentence, under 25 words, plain commas/periods only (never dashes).
 
-REALITY RULES — every question must make factual sense for THIS brand:
-- Never invent prices, specs, or numbers. Only use figures from web_context.
-- Match the brand's real category and tier (a premium EV is not "under $10,000").
-- Write how a real person actually types to an AI: natural, with real context and scenario ("a 20-person startup that needs docs and project tracking"), not terse keyword queries.
-- Keep each question to ONE sentence, under 25 words. Plain punctuation only: use commas and periods, never em-dashes or en-dashes.
-- Use only real competitor names (from context/web_context).
-
-MOST questions (at least 7 of 10) must be CATEGORY questions that do NOT name this
-brand — they describe a need and ask what to use ("best AI meeting notetaker for a
-remote team of 10", "which expense tool works for a 50-person B2B SaaS startup").
-These test whether the brand surfaces on its own, which is the real measure.
-The remaining 2-3 may name the brand directly (pricing, integrations, compliance,
-or a head-to-head vs a named competitor). Do not exceed 3 that name the brand.
-
-Return ONLY a JSON object: {"questions": ["...", "..."]}. No prose, no markdown fences."""
+Return ONLY JSON: {"questions": ["...", "..."]}. No prose, no markdown fences."""
 
 
-async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> list[str]:
-    """Phase A: one call to the stronger QUESTION_MODEL to write all probe questions,
-    grounded in the brand's real web context. Custom questions (if any) run first."""
-    user = f"Brand context:\n{json.dumps(context, indent=2)}\n\nWrite 8-10 buyer questions as JSON."
+# Brand-direct questions DO know the brand — these are for the detail view (not scored),
+# so it's fine for them to be specific (pricing, integrations, head-to-heads).
+BRAND_GEN_PROMPT = """You write 2 specific questions a buyer would ask an AI assistant ABOUT a particular brand they are already considering. You receive the brand's name, industry, and web_context.
+
+Write 2 questions that name the brand directly: e.g. its pricing tiers, a key integration, a compliance question, or a head-to-head vs a real named competitor. Ground them in web_context (no invented numbers). One sentence each, under 25 words, plain punctuation only.
+
+Return ONLY JSON: {"questions": ["...", "..."]}. No prose, no markdown fences."""
+
+
+async def _gen_questions_from_prompt(bedrock, system_prompt: str, user_text: str, n_hint: int) -> list[str]:
     resp = await asyncio.to_thread(
         lambda: bedrock.converse(
             modelId=QUESTION_MODEL,
-            system=[{"text": QUESTION_GEN_PROMPT}],
-            messages=[{"role": "user", "content": [{"text": user}]}],
-            # Conversational questions are long; generous budget so the JSON array
-            # isn't truncated mid-element (which forces the salvage path below).
+            system=[{"text": system_prompt}],
+            messages=[{"role": "user", "content": [{"text": user_text}]}],
             inferenceConfig={"maxTokens": 2600, "temperature": 0.7},
         )
     )
@@ -373,22 +376,41 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
     try:
         generated = json.loads(raw).get("questions", [])
     except (json.JSONDecodeError, KeyError, IndexError):
-        # Salvage a truncated array: keep up to the last COMPLETE element (a closing
-        # quote followed by a comma), then close the JSON and let json.loads decode it
-        # PROPERLY — handles \uXXXX and UTF-8 right, where a manual unicode_escape would
-        # mangle em-dashes into mojibake (the bug this replaces).
+        # Salvage a truncated array: keep up to the last COMPLETE element, close the
+        # JSON, and let json.loads decode it properly (UTF-8 safe).
         generated = []
-        cut = raw.rfind('",')           # end of the last fully-written element
+        cut = raw.rfind('",')
         if cut > 0:
-            repaired = raw[:cut + 1] + "]}"   # raw[:cut+1] ends at the closing quote
             try:
-                generated = json.loads(repaired).get("questions", [])
+                generated = json.loads(raw[:cut + 1] + "]}").get("questions", [])
             except (json.JSONDecodeError, KeyError):
                 generated = []
         log.warning("question_gen_salvaged", recovered=len(generated), raw=raw[:120])
+    return [q for q in generated if isinstance(q, str) and q.strip()][:n_hint]
+
+
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> list[str]:
+    """Generate the probe set in two BLIND pools to avoid brand-shaped questions:
+      - category questions: generated from the industry/category ONLY (brand withheld)
+        -> neutral, these are what get scored for true organic visibility.
+      - brand-direct questions: generated WITH the brand context -> detail view only.
+    Custom questions (if any) run first."""
+    industry = context.get("industry", "unknown")
+    # Pool 1: neutral category questions — the generator never sees the brand name.
+    cat_user = (
+        f"Category / industry: {industry}\n"
+        "Write 8 neutral category buyer questions as JSON. Do NOT name any specific brand."
+    )
+    category = await _gen_questions_from_prompt(bedrock, CATEGORY_GEN_PROMPT, cat_user, 8)
+
+    # Pool 2: brand-direct (knows the brand) — for detail, not scored.
+    brand_ctx = {k: context[k] for k in ("name", "industry", "web_context") if k in context}
+    brand_user = f"Brand:\n{json.dumps(brand_ctx, indent=2)}\n\nWrite 2 brand-specific questions as JSON."
+    brand_direct = await _gen_questions_from_prompt(bedrock, BRAND_GEN_PROMPT, brand_user, 2)
+
     custom = [q.strip() for q in (custom_questions or []) if q.strip()]
-    # Custom questions first, then generated; cap to keep audits bounded.
-    return (custom + [q for q in generated if isinstance(q, str) and q.strip()])[:12]
+    # custom first, then neutral category (scored), then brand-direct (detail). Cap at 12.
+    return (custom + category + brand_direct)[:12]
 
 
 ANALYSIS_PROMPT = """You are an AI brand visibility analyst. You receive a brand name and per-probe results (each question, and which AI models mentioned the brand). Report what was measured. You do NOT give marketing advice.
@@ -512,11 +534,19 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     # asks about the category. "Brand-direct" questions (which name the brand) are run for
     # the detail view but excluded from scoring, since a model trivially echoes a name we
     # handed it (that would inflate every brand toward 100% and measure nothing real).
+    # Run the model I/O for ALL questions in one concurrent wave (bounded by the call
+    # semaphore), then write to the DB serially. This collapses what used to be a
+    # sequential ~170s (10 probes x ~17s each) into roughly the latency of a single probe.
+    emit(f"Asking {len(MODEL_CONFIGS)} models across {len(questions)} questions…")
+    raw_per_question = await asyncio.gather(
+        *[_probe_all_models(q, target_brand, on_event=emit) for q in questions]
+    )
+
     probe_results = []
-    for i, q in enumerate(questions, 1):
+    for i, (q, raw) in enumerate(zip(questions, raw_per_question), 1):
         is_brand_direct = _brand_matches(target_brand, q)
-        emit(f"Asking {len(MODEL_CONFIGS)} models: \"{q[:60]}…\"")
-        result = await _run_probe_tool(session, brand_id, q, target_brand, on_event=emit)
+        result, upsert_stmt = _persist_probe(session, brand_id, q, raw)
+        await session.execute(upsert_stmt)  # serial: one session, one task
         if not is_brand_direct:
             for model, mentioned in result.get("breakdown", {}).items():
                 model_hits.setdefault(model, []).append(mentioned == "yes")
@@ -526,6 +556,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
         })
         emit(f"Probe {i}: {result['visibility_pct']}% visible")
         log.info("probe_done", probe_count=i, visibility_pct=result["visibility_pct"], scored=not is_brand_direct)
+    await session.flush()
 
     # Visibility = organic mentions on category questions only. If the model generated
     # all brand-direct questions (no category ones), fall back to all so we never divide
