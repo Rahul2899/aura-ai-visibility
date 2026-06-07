@@ -324,7 +324,8 @@ You will receive the brand's name, industry, competitors, and web_context (live 
 REALITY RULES — every question must make factual sense for THIS brand:
 - Never invent prices, specs, or numbers. Only use figures from web_context.
 - Match the brand's real category and tier (a premium EV is not "under $10,000").
-- Write how a real person actually types to an AI — natural, with real context and scenario ("a 20-person startup that needs docs and project tracking"), not terse keyword queries.
+- Write how a real person actually types to an AI: natural, with real context and scenario ("a 20-person startup that needs docs and project tracking"), not terse keyword queries.
+- Keep each question to ONE sentence, under 25 words. Plain punctuation only: use commas and periods, never em-dashes or en-dashes.
 - Use only real competitor names (from context/web_context).
 - Mix types: brand-direct (features/pricing/compliance), category recommendation (scale+industry+pain point), feature-specific, competitor comparison, regional/market.
 
@@ -340,9 +341,9 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
             modelId=QUESTION_MODEL,
             system=[{"text": QUESTION_GEN_PROMPT}],
             messages=[{"role": "user", "content": [{"text": user}]}],
-            # Conversational, human-style questions are long; 2048 gives headroom so
-            # the JSON isn't truncated mid-array (which broke parsing before).
-            inferenceConfig={"maxTokens": 2048, "temperature": 0.7},
+            # Conversational questions are long; generous budget so the JSON array
+            # isn't truncated mid-element (which forces the salvage path below).
+            inferenceConfig={"maxTokens": 2600, "temperature": 0.7},
         )
     )
     raw = resp["output"]["message"]["content"][0]["text"].strip()
@@ -351,10 +352,18 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
     try:
         generated = json.loads(raw).get("questions", [])
     except (json.JSONDecodeError, KeyError, IndexError):
-        # Salvage: even if the JSON was truncated mid-array, pull out every complete
-        # "...": quoted string so a long response still yields usable questions.
-        generated = re.findall(r'"((?:[^"\\]|\\.){10,})"', raw)
-        generated = [g.encode().decode("unicode_escape") for g in generated]
+        # Salvage a truncated array: keep up to the last COMPLETE element (a closing
+        # quote followed by a comma), then close the JSON and let json.loads decode it
+        # PROPERLY — handles \uXXXX and UTF-8 right, where a manual unicode_escape would
+        # mangle em-dashes into mojibake (the bug this replaces).
+        generated = []
+        cut = raw.rfind('",')           # end of the last fully-written element
+        if cut > 0:
+            repaired = raw[:cut + 1] + "]}"   # raw[:cut+1] ends at the closing quote
+            try:
+                generated = json.loads(repaired).get("questions", [])
+            except (json.JSONDecodeError, KeyError):
+                generated = []
         log.warning("question_gen_salvaged", recovered=len(generated), raw=raw[:120])
     custom = [q.strip() for q in (custom_questions or []) if q.strip()]
     # Custom questions first, then generated; cap to keep audits bounded.

@@ -20,13 +20,9 @@ def _fake_getaddrinfo(ip: str):
     return _inner
 
 
-# ── hostname format rejection (no DNS) ────────────────────────────────────────
+# ── genuinely malformed hostnames are rejected (no DNS) ───────────────────────
 
 @pytest.mark.parametrize("bad", [
-    "http://evil.com",        # scheme not allowed
-    "https://evil.com",       # scheme not allowed
-    "evil.com/path",          # path not allowed
-    "evil.com:8080",          # port not allowed
     "evil .com",              # space
     "",                        # empty
     "-bad.com",               # leading hyphen
@@ -34,6 +30,28 @@ def _fake_getaddrinfo(ip: str):
 ])
 def test_malformed_hostname_rejected(bad):
     assert _safe_https_url(bad) is None
+
+
+# ── real-world input (scheme/path/port) is NORMALIZED to a bare host, then the
+#    IP-validation still applies. We strip these formats and always force :443, so
+#    accepting them is safe — the SSRF boundary is the resolved IP, not the format.
+@pytest.mark.parametrize("raw,host", [
+    ("http://example.com", "https://example.com"),
+    ("https://example.com", "https://example.com"),
+    ("example.com/path/page", "https://example.com"),
+    ("example.com:8080", "https://example.com"),          # user port ignored; forced 443
+    ("https://www.example.com/x", "https://example.com"),  # www stripped
+])
+def test_url_input_normalized(raw, host, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("93.184.216.34"))
+    assert _safe_https_url(raw) == host
+
+
+def test_ssrf_holds_through_url_normalization(monkeypatch):
+    # A private-IP host pasted as a full URL with a port must STILL be blocked —
+    # normalization must not become an SSRF bypass.
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("169.254.169.254"))
+    assert _safe_https_url("http://metadata.evil.com:8080/latest/meta-data/") is None
 
 
 # ── blocked IP ranges ─────────────────────────────────────────────────────────

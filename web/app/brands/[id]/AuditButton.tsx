@@ -191,7 +191,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
             <div className="absolute right-0 top-full mt-2 z-20 w-72 rounded-xl border border-slate-200 bg-white shadow-lg p-3 space-y-2">
               <p className="text-xs text-slate-700 font-bold">Test your own questions</p>
               <p className="text-[11px] text-slate-400 font-medium leading-snug">
-                Add specific buyer questions you want checked. Up to 5, one per line — these run first, before the auto-generated ones.
+                Add specific buyer questions you want checked. Up to 5, one per line. These run first, before the auto-generated ones.
               </p>
               <textarea
                 value={customText}
