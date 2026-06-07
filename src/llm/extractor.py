@@ -24,7 +24,7 @@ async def extract_mentions(
     client,  # OpenRouterClient or BedrockClient
     model: str,
     response_text: str,
-    max_retries: int = 3,
+    max_retries: int = 2,  # 1 initial + 1 retry; failure falls back to empty (model excluded from score)
 ) -> ExtractionResult:
     messages = [
         {"role": "system", "content": EXTRACTION_PROMPT},

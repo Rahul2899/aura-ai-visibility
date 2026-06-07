@@ -47,6 +47,16 @@ export default function BrandPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shareLabel, setShareLabel] = useState("Share");
+  // True while an audit is actively running for this brand — detected from the
+  // same localStorage job key AuditButton uses, so it works whether the audit was
+  // triggered via autostart or the "Run Audit" button. Drives the centered progress UI.
+  const [auditActive, setAuditActive] = useState(false);
+  useEffect(() => {
+    const check = () => setAuditActive(autostart === "1" || !!localStorage.getItem(`aura_audit_job_${id}`));
+    check();
+    const iv = setInterval(check, 1500);
+    return () => clearInterval(iv);
+  }, [id, autostart]);
 
   async function shareReport() {
     try {
@@ -180,14 +190,14 @@ export default function BrandPage() {
       <div className="max-w-5xl mx-auto px-5 sm:px-6 py-8 space-y-6">
         {!latest ? (
           <div className="card p-16 text-center" style={{ borderStyle: "dashed" }}>
-            {autostart === "1" ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-center gap-2">
+            {auditActive ? (
+              <div className="space-y-5 max-w-xl mx-auto">
+                <div className="flex items-center justify-center gap-2.5">
                   <span className="live-dot" />
-                  <p className="text-slate-900 font-bold text-lg">Audit starting…</p>
+                  <p className="text-slate-900 font-bold text-xl">Auditing {brand.name}…</p>
                 </div>
-                <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto">
-                  Generating industry-specific probe questions and querying AI models. Live progress is in the top-right. This page refreshes when done (~1–2 min).
+                <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto leading-relaxed">
+                  Asking real buyer questions across 4 AI models and measuring how often {brand.name} gets recommended. Live progress is in the panel above. This page refreshes when done (about 1 to 2 minutes).
                 </p>
               </div>
             ) : (
@@ -198,7 +208,7 @@ export default function BrandPage() {
                 <div className="space-y-2">
                   <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
                   <p className="text-slate-500 text-sm font-semibold leading-relaxed">
-                    We&apos;ll ask ~10 buyer-style questions across multiple AI models and measure how often {brand.name} gets recommended — then show you exactly where to improve.
+                    We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show you exactly where to improve.
                   </p>
                 </div>
                 <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
@@ -323,7 +333,7 @@ export default function BrandPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <p className="text-slate-800 font-bold text-sm">Where you&apos;re invisible <span className="text-slate-400 font-medium">· Dark Matter</span></p>
-                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand — pure opportunity</p>
+                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand. Pure opportunity.</p>
                   </div>
                   <span className="text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
                     {darkMatter.dark_matter_count} of {darkMatter.total_probes} questions

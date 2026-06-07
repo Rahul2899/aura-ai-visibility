@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
-import { getSessionId } from "./lib/session";
+import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey } from "./lib/session";
 import { createBrand, validateBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
 import {
@@ -24,24 +24,78 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-function exportCSV(brands: BrandRow[]) {
-  const rows = [
-    ["Brand", "Domain", "AI Visibility %", "vs Last Run", "Probes", "Last Audit"],
-    ...brands.map(b => [
-      b.name,
-      b.domain ?? "",
-      b.visibility_pct?.toFixed(1) ?? "",
-      b.trend !== null ? `${b.trend > 0 ? "+" : ""}${b.trend?.toFixed(1)}%` : "",
-      b.probe_count ?? "",
-      b.last_run ? new Date(b.last_run).toLocaleDateString() : "",
-    ])
-  ];
-  const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `ai-visibility-${new Date().toISOString().split("T")[0]}.csv`;
-  a.click();
+// Build a styled, colorful report and open the browser's print dialog (Save as PDF).
+// Score colors match the app: green >=60, amber >=35, red below.
+function exportPDF(brands: BrandRow[]) {
+  const scoreColor = (p: number | null) =>
+    p === null ? { fg: "#64748b", bg: "#f1f5f9" }
+    : p >= 60 ? { fg: "#047857", bg: "#ecfdf5" }
+    : p >= 35 ? { fg: "#b45309", bg: "#fffbeb" }
+    : { fg: "#dc2626", bg: "#fef2f2" };
+
+  const ranked = [...brands].filter(b => b.visibility_pct !== null)
+    .sort((a, b) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0));
+  const avg = ranked.length ? ranked.reduce((s, b) => s + (b.visibility_pct ?? 0), 0) / ranked.length : 0;
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  const rows = ranked.map((b, i) => {
+    const c = scoreColor(b.visibility_pct);
+    const bar = Math.max(b.visibility_pct ?? 0, 2);
+    return `<tr>
+      <td class="rank">${i + 1}</td>
+      <td><span class="bname">${b.name}</span>${b.industry ? `<span class="ind">${b.industry}</span>` : ""}</td>
+      <td><div class="barwrap"><div class="bar" style="width:${bar}%;background:${c.fg}"></div></div></td>
+      <td><span class="chip" style="color:${c.fg};background:${c.bg}">${b.visibility_pct?.toFixed(0)}%</span></td>
+      <td class="probes">${b.probe_count ?? 0}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Aura AI Visibility Report</title>
+  <style>
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 40px; }
+    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0369a1; padding-bottom: 16px; margin-bottom: 24px; }
+    .brandmark { font-size: 22px; font-weight: 800; color: #0369a1; }
+    .sub { color: #64748b; font-size: 13px; margin-top: 2px; }
+    .date { color: #94a3b8; font-size: 12px; font-weight: 600; }
+    .kpis { display: flex; gap: 14px; margin-bottom: 28px; }
+    .kpi { flex: 1; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+    .kpi .lbl { color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .kpi .val { font-size: 26px; font-weight: 800; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 12px 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; vertical-align: middle; }
+    .rank { color: #94a3b8; font-weight: 700; width: 28px; }
+    .bname { font-weight: 700; }
+    .ind { display: block; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+    .barwrap { background: #f1f5f9; border-radius: 6px; height: 8px; width: 180px; overflow: hidden; }
+    .bar { height: 100%; border-radius: 6px; }
+    .chip { font-weight: 800; font-size: 13px; padding: 4px 10px; border-radius: 8px; }
+    .probes { color: #475569; font-weight: 600; text-align: right; }
+    .foot { margin-top: 28px; color: #94a3b8; font-size: 11px; }
+  </style></head><body>
+    <div class="head">
+      <div><div class="brandmark">Aura AI</div><div class="sub">AI Brand Visibility Report</div></div>
+      <div class="date">${today}</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Brands</div><div class="val">${ranked.length}</div></div>
+      <div class="kpi"><div class="lbl">Avg Visibility</div><div class="val" style="color:${scoreColor(avg).fg}">${avg.toFixed(0)}%</div></div>
+      <div class="kpi"><div class="lbl">Market Leader</div><div class="val">${ranked[0]?.name ?? "N/A"}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Brand</th><th>Visibility</th><th>Score</th><th style="text-align:right">Probes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="foot">Generated by Aura AI. Results reflect non-deterministic AI responses and may vary between runs.</div>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 350);
 }
 
 type BrandRow = {
@@ -88,20 +142,25 @@ export default function Home() {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [industry, setIndustry] = useState("");
+  const [industryOther, setIndustryOther] = useState(false);
   const [industries, setIndustries] = useState<string[]>([]);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customText, setCustomText] = useState("");
   const [adding, setAdding] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [limitReached, setLimitReached] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
+  const [admin, setAdmin] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const sess = getSessionId();
+      const adminHdr: Record<string, string> = sess === "admin" ? { "X-Admin-Key": getAdminKey() } : {};
       const [compareRes, limitRes, industriesRes] = await Promise.all([
         fetch(`${API}/brands/compare?session_id=${sess}`),
-        fetch(`${API}/audit/limit-status?session_id=${sess}`),
+        fetch(`${API}/audit/limit-status?session_id=${sess}`, { headers: adminHdr }),
         fetch(`${API}/brands/industries`),
       ]);
       if (compareRes.ok) setBrands(await compareRes.json());
@@ -120,6 +179,20 @@ export default function Home() {
 
 
   useEffect(() => {
+    // Admin activation: visiting /?admin=<ADMIN_KEY> stores the key in sessionStorage
+    // and strips it from the URL. The server still verifies the real key on every
+    // privileged call (is_admin) — this client flag is cosmetic; a fake flag without
+    // the real key gets 403. A normal user with no key never sees admin UI.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const key = params.get("admin");
+      if (key) {
+        setAdminKey(key);
+        setAdminMode(true);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      setAdmin(isAdminMode());
+    }
     load();
   }, [load]);
 
@@ -138,6 +211,10 @@ export default function Home() {
       setFormError(result.error);
       return;
     }
+    // Hand custom questions to the brand page's autostart via sessionStorage —
+    // keeps question text out of the URL and survives the same-tab redirect.
+    const cq = customText.split("\n").map(q => q.trim()).filter(q => q.length > 5).slice(0, 5);
+    if (cq.length) sessionStorage.setItem(`aura_cq_${result.id}`, JSON.stringify(cq));
     window.location.href = `/brands/${result.id}?autostart=1`;
   }
 
@@ -173,9 +250,15 @@ export default function Home() {
           </div>
           <span className="font-bold text-sm text-slate-900 tracking-tight group-hover:text-[var(--accent)] transition-colors">Aura AI</span>
         </Link>
-        <span className="text-slate-500 text-xs font-semibold tabular border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-xl select-none">
-          {Math.max(0, 2 - auditCount)} / 2 Audits left
-        </span>
+        {admin ? (
+          <span className="text-[var(--accent)] text-xs font-bold tabular border border-[var(--border-2)] bg-[var(--accent-dim)] px-3 py-1.5 rounded-xl select-none">
+            ADMIN · unlimited
+          </span>
+        ) : (
+          <span className="text-slate-500 text-xs font-semibold tabular border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-xl select-none">
+            {Math.max(0, 2 - auditCount)} / 2 Audits left
+          </span>
+        )}
       </header>
 
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
@@ -188,7 +271,7 @@ export default function Home() {
             See how often AI models recommend your brand
           </h1>
           <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
-            When buyers ask ChatGPT, Claude, or Gemini for recommendations, does your brand show up? Aura runs real buyer questions across multiple AI models and measures your visibility — then tells you how to improve.
+            When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models and measures your visibility, then shows you how to improve.
           </p>
           <div className="pt-1">
             <a href="#audit-form" className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
@@ -258,7 +341,7 @@ export default function Home() {
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
                   <p className="text-slate-500 text-xs leading-relaxed font-semibold">
-                    Aura AI uses AWS Bedrock to probe search assistant models (Nova, Claude, Llama) with ~10 industry-specific probe questions to check if your brand is recommended.
+                    Aura runs about 10 industry-specific buyer questions across four AI models (Nova Pro, Claude Haiku, Llama 3.3, and Mistral Large) to check whether your brand gets recommended.
                   </p>
                 </div>
 
@@ -307,10 +390,10 @@ export default function Home() {
                         className="btn-ghost flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-semibold">
                         <GitCompare className="w-3.5 h-3.5 text-[var(--accent)]" /> Compare
                       </Link>
-                      <button onClick={() => exportCSV(audited)}
+                      <button onClick={() => exportPDF(audited)}
                         className="btn-ghost flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-semibold"
-                        aria-label="Export audited brands as CSV">
-                        <Download className="w-3.5 h-3.5 text-[var(--accent)]" /> Export
+                        aria-label="Export audited brands as PDF">
+                        <Download className="w-3.5 h-3.5 text-[var(--accent)]" /> Export PDF
                       </button>
                     </div>
                   </div>
@@ -335,7 +418,7 @@ export default function Home() {
                 <div className="divide-y divide-slate-50">
                   {filtered.filter(b => b.visibility_pct !== null).map((b, i) => (
                     <Link key={b.id} href={`/brands/${b.id}`} className="block">
-                      <div className="group grid grid-cols-12 px-6 py-3.5 items-center hover:bg-slate-50/70 transition-colors cursor-pointer">
+                      <div className="group grid grid-cols-12 px-6 py-3.5 items-center min-h-[60px] hover:bg-slate-50/70 transition-colors cursor-pointer">
                         <div className="col-span-1 flex items-center">
                           {i === 0 ? (
                             <Trophy className="w-3.5 h-3.5 text-amber-400" />
@@ -350,9 +433,6 @@ export default function Home() {
                           <div>
                             <p className="font-semibold text-sm text-slate-800 group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
                               {b.name}
-                              {b.is_example && (
-                                <span className="text-[9px] font-bold uppercase tracking-wide text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded" title="Pre-loaded example brand">Demo</span>
-                              )}
                               <ChevronRight className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </p>
                             {b.industry && (
@@ -365,7 +445,7 @@ export default function Home() {
                         <div className="col-span-2 text-right"><ScoreChip pct={b.visibility_pct} /></div>
                         <div className="col-span-2 text-right flex justify-end"><TrendPill v={b.trend} /></div>
                         <div className="col-span-2 text-right flex items-center justify-end gap-1">
-                          <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "—"}</span>
+                          <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "0"}</span>
                           {!b.is_example && (
                             <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
                               className="ml-1 w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
@@ -427,7 +507,7 @@ export default function Home() {
               </div>
               <p className="text-slate-400 text-xs mb-4 pl-8">Add any brand to measure its AI visibility across models.</p>
 
-              {limitReached && (
+              {limitReached && !admin && (
                 <div className="border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold p-3 rounded-xl flex flex-col gap-1 mb-4 leading-relaxed">
                   <span className="font-extrabold uppercase text-[10px] tracking-wider">Audit Limit Reached</span>
                   You&apos;ve used both free audits. Try again later or from a different network.
@@ -462,20 +542,66 @@ export default function Home() {
                   <label htmlFor="brand-industry" className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">
                     Industry <span className="normal-case text-slate-300 font-normal">(sharpens probe questions)</span>
                   </label>
-                  <div className="relative">
-                    <select
-                      id="brand-industry"
-                      value={industry}
-                      onChange={e => setIndustry(e.target.value)}
-                      className="w-full input-field py-2.5 text-sm appearance-none pr-8"
-                    >
-                      <option value="">Select industry…</option>
-                      {industries.map(ind => (
-                        <option key={ind} value={ind}>{ind}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2.5 top-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  </div>
+                  {industryOther ? (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={industry}
+                        onChange={e => setIndustry(e.target.value)}
+                        placeholder="Type your industry"
+                        className="w-full input-field py-2.5 text-sm pr-16"
+                        aria-label="Custom industry"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setIndustryOther(false); setIndustry(""); }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 hover:text-[var(--accent)]"
+                      >
+                        List
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <select
+                        id="brand-industry"
+                        value={industry}
+                        onChange={e => {
+                          if (e.target.value === "__other__") { setIndustryOther(true); setIndustry(""); }
+                          else setIndustry(e.target.value);
+                        }}
+                        className="w-full input-field py-2.5 text-sm appearance-none pr-8"
+                      >
+                        <option value="">Select industry</option>
+                        {industries.map(ind => (
+                          <option key={ind} value={ind}>{ind}</option>
+                        ))}
+                        <option value="__other__">Other (type your own)</option>
+                      </select>
+                      <ChevronDown className="absolute right-2.5 top-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustom(v => !v)}
+                    className="text-[11px] text-slate-500 hover:text-slate-800 font-semibold flex items-center gap-1 transition-colors self-start"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add your own questions <span className="text-slate-300 font-normal">(optional)</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${showCustom ? "rotate-180" : ""}`} />
+                  </button>
+                  {showCustom && (
+                    <textarea
+                      value={customText}
+                      onChange={e => setCustomText(e.target.value)}
+                      placeholder={"Does it integrate with Slack?\nWhich tool is best for small teams?"}
+                      className="w-full input-field py-2.5 text-sm leading-relaxed resize-none"
+                      rows={3}
+                    />
+                  )}
                 </div>
 
                 {formError && (
@@ -484,11 +610,11 @@ export default function Home() {
                   </p>
                 )}
 
-                <button type="submit" disabled={adding || !name.trim() || limitReached}
+                <button type="submit" disabled={adding || !name.trim() || (limitReached && !admin)}
                   className="w-full btn-primary flex items-center justify-center gap-1.5 py-2.5 mt-1"
                 >
                   <Plus className="w-4 h-4 text-white" />
-                  {adding ? "Running Audit..." : limitReached ? "Limit Reached" : "Add & Run Audit"}
+                  {adding ? "Running Audit..." : (limitReached && !admin) ? "Limit Reached" : "Add & Run Audit"}
                 </button>
               </form>
             </div>
@@ -534,9 +660,9 @@ export default function Home() {
           <h2 className="font-bold text-lg text-slate-900 text-center">How Aura measures AI visibility</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
             {[
-              { step: "1", title: "Real buyer questions", desc: "We generate ~10 questions a real buyer would ask an AI about your category — not generic prompts." },
-              { step: "2", title: "Multiple AI models", desc: "Each question runs across leading models (Claude, Nova, Llama and more) in parallel." },
-              { step: "3", title: "A visibility score", desc: "We measure how often your brand is mentioned, then show where you're strong and where you're invisible." },
+              { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
+              { step: "2", title: "Four AI models", desc: "Each question runs across Nova Pro, Claude Haiku, Llama 3.3, and Mistral Large in parallel." },
+              { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
             ].map(s => (
               <div key={s.step} className="text-center space-y-2">
                 <div className="w-8 h-8 rounded-full bg-[var(--accent-dim)] text-[var(--accent)] font-bold text-sm flex items-center justify-center mx-auto">{s.step}</div>
@@ -550,7 +676,7 @@ export default function Home() {
 
       <footer className="border-t mt-8 py-6 px-6 text-center" style={{ borderColor: "var(--border-solid)" }}>
         <p className="text-xs text-slate-400 font-medium">
-          <span className="font-bold text-slate-500">Aura AI</span> — AI brand visibility analytics ·
+          <span className="font-bold text-slate-500">Aura AI</span> · AI brand visibility analytics ·
           Results reflect non-deterministic AI responses and may vary between runs.
         </p>
       </footer>

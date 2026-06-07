@@ -157,6 +157,18 @@ ORCHESTRATOR_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 MAX_STEPS = 30
 MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") for m in BEDROCK_MODELS]
 
+# Friendly names for the live activity feed. .get fallback means a model swap can't crash the feed.
+MODEL_DISPLAY = {
+    "us.amazon.nova-pro-v1:0": "Nova Pro",
+    "us.meta.llama3-3-70b-instruct-v1:0": "Llama 3.3",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku",
+    "mistral.mistral-large-2402-v1:0": "Mistral Large",
+}
+
+
+def friendly(model: str) -> str:
+    return MODEL_DISPLAY.get(model, model.split(".")[-1].split("-")[0].title())
+
 
 def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
     """Overall visibility % = total brand mentions across every (probe × model)
@@ -172,8 +184,16 @@ SYSTEM_PROMPT = """You are an AI brand visibility analyst. AI models learn from 
 
 Steps:
 1. Call get_brand_context. The response includes name, domain, industry, competitors, and optionally web_context (live search snippets about the brand).
-2. If web_context is present, read it carefully — extract real product features, pricing model, target customers, and differentiators. Use these specifics to write probe questions that reference actual capabilities (e.g. "Which ATS supports async video interviews and HRIS sync?" not "What is the best ATS?").
-3. Use the brand's industry to write 8-10 probe questions that match how REAL BUYERS in that sector search for solutions. If industry is "unknown", infer it from the brand name and domain. Do NOT ask generic "Tell me about brand X" queries. Write realistic search-intent prompts:
+2. If web_context is present, you MUST read it and ground every question in it — extract the brand's REAL product features, pricing tier, target customers, and category. Reference actual capabilities (e.g. "Which ATS supports async video interviews and HRIS sync?" not "What is the best ATS?").
+3. Use the brand's industry to write 8-10 probe questions that match how REAL BUYERS in that sector actually search. If industry is "unknown", infer it from the brand name and domain. Do NOT ask generic "Tell me about brand X" queries.
+
+REALITY RULES — questions MUST make factual sense for THIS brand:
+- Never invent prices, specs, or numbers. Only use figures that appear in web_context. If you don't know the price, don't ask a price-bracketed question.
+- Match the brand's actual category and tier. A premium electric vehicle is not "under $10,000"; an enterprise HR suite is not "free for individuals". Absurd or contradictory premises are forbidden.
+- A real buyer would actually type this into ChatGPT. If a question is implausible for someone shopping in this category, rewrite it.
+- Use only real competitor names (from the context's competitor list or web_context), not invented ones.
+
+Write realistic search-intent prompts across these types:
    - Brand-Direct: Questions seeking specific technical, pricing, integration, or compliance details (e.g., "Does [Brand] support HIPAA compliance?" or "Can I connect [Brand] to Salesforce?").
    - Category Recommendation: Natural language recommendation queries detailing scale, industry, and pain point (e.g., "What is the best expense management software for a B2B SaaS startup with 50 employees?").
    - Feature-Specific: Prompts looking for solutions with specific capabilities (e.g., "Which virtual card systems allow instant CSV exports and real-time spending controls?").
@@ -266,7 +286,7 @@ def _call_claude_sync(client, messages: list) -> dict:
     )
 
 
-async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str) -> dict:
+async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str, on_event=None) -> dict:
     """Run one model. Returns a dict with `failed` flag so failed calls are excluded from the
     score instead of being counted as a real non-mention (which would corrupt visibility %).
     Uses the structured extractor — not a naive string match — to prevent hallucination false positives."""
@@ -275,6 +295,8 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
         result = await client.complete(model=model, messages=[{"role": "user", "content": prompt_text}])
         extraction = await extract_mentions(client, model, result["text"])
         mentioned = any(target_brand.lower() in m.brand_name.lower() for m in extraction.mentions)
+        if on_event:
+            on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
         return {
             "model": model, "provider": provider, "mentioned": mentioned, "failed": False,
             "tokens_in": result.get("tokens_in", 0), "tokens_out": result.get("tokens_out", 0),
@@ -289,13 +311,13 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             await client.close()
 
 
-async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str, target_brand: str) -> dict:
+async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str, target_brand: str, on_event=None) -> dict:
     """Run one probe across all models. Updates ProbePerformance. Returns summary dict."""
     semaphore = asyncio.Semaphore(10)
 
     async def bounded(p, m):
         async with semaphore:
-            return await _probe_one_model(p, m, prompt_text, target_brand)
+            return await _probe_one_model(p, m, prompt_text, target_brand, on_event=on_event)
 
     results = await asyncio.gather(*[bounded(p, m) for m, p in MODEL_CONFIGS])
 
@@ -360,8 +382,15 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
     return context
 
 
-async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None) -> Insight | None:
+async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, on_event=None) -> Insight | None:
     """Run the Hermes orchestration loop for a brand. Returns saved Insight or None on dry_run."""
+    def emit(msg: str):
+        if on_event:
+            try:
+                on_event(msg)
+            except Exception:
+                pass
+
     bedrock = _bedrock_client()
     custom_block = ""
     if custom_questions:
@@ -373,6 +402,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     model_hits: dict[str, list[bool]] = {}  # {model: [mentioned_per_probe]}
 
     log.info("orchestrate_start", brand_id=brand_id, dry_run=dry_run)
+    emit("Starting audit…")
 
     for step in range(MAX_STEPS):
         response = await asyncio.to_thread(_call_claude_sync, bedrock, messages)
@@ -393,17 +423,21 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             tool_calls_log.append({"tool": tool_name, "input": tool_input})
 
             if tool_name == "get_brand_context":
+                emit("Searching the web for brand context…")
                 result = await _get_brand_context_tool(session, tool_input["brand_id"])
+                emit("Gathered brand context. Generating questions…")
 
             elif tool_name == "run_probe":
                 if dry_run:
                     result = {"dry_run": True, "prompt": tool_input["prompt_text"]}
                     log.info("dry_run_probe", prompt=tool_input["prompt_text"])
                 else:
-                    result = await _run_probe_tool(session, brand_id, tool_input["prompt_text"], tool_input["target_brand_name"])
+                    emit(f"Asking {len(MODEL_CONFIGS)} models: \"{tool_input['prompt_text'][:60]}…\"")
+                    result = await _run_probe_tool(session, brand_id, tool_input["prompt_text"], tool_input["target_brand_name"], on_event=emit)
                     probe_count += 1
                     for model, mentioned in result.get("breakdown", {}).items():
                         model_hits.setdefault(model, []).append(mentioned == "yes")
+                    emit(f"Probe {probe_count}: {result['visibility_pct']}% visible")
                     log.info("probe_done", probe_count=probe_count, visibility_pct=result["visibility_pct"])
 
             elif tool_name == "finish":
@@ -434,6 +468,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             # number — the model can miscalculate. Overall visibility = total hits across
             # every (probe × model) result divided by total results.
             visibility_pct = compute_visibility(model_hits)
+            emit(f"Scoring visibility… {visibility_pct}%")
             insight = Insight(
                 brand_id=brand_id,
                 summary=insight_data["summary"],

@@ -391,7 +391,7 @@ export default function ComparePage() {
             {allModelIds.length > 0 && (
               <div className="card p-6 overflow-hidden">
                 <p className="text-slate-500 text-xs uppercase font-bold tracking-wider">Model Bias Matrix</p>
-                <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">Each brand&apos;s visibility in each AI model — spot which models favor which brand</p>
+                <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">Each brand&apos;s visibility in each AI model. Spot which models favor which brand.</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -572,7 +572,7 @@ export default function ComparePage() {
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-2">Why do scores change between runs?</h3>
               <p className="text-slate-400 text-xs leading-relaxed font-semibold">
-                Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic — the same question can get a different answer each time. Early runs with model failures (rate limits, wrong IDs) score lower because failed models count as 0%. Later runs with all models working give accurate measurements.
+                Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic, so the same question can get a different answer each time. Early runs with model failures (rate limits, wrong IDs) score lower because failed models count as 0%. Later runs with all models working give accurate measurements.
               </p>
             </div>
             <div>

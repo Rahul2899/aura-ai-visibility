@@ -10,9 +10,9 @@ log = structlog.get_logger()
 
 BEDROCK_MODELS = [
     "us.amazon.nova-pro-v1:0",
-    "meta.llama3-3-70b-instruct-v1:0",
+    "us.meta.llama3-3-70b-instruct-v1:0",
     "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "mistral.mistral-large-2402-v1:0",  # verified enabled us-east-1; fallback: us.amazon.nova-lite-v1:0
 ]
 
 
@@ -23,7 +23,7 @@ def _make_body(model: str, messages: list[dict]) -> dict:
 
     body: dict = {
         "messages": [{"role": m["role"], "content": [{"text": m["content"]}]} for m in user_msgs],
-        "inferenceConfig": {"maxTokens": 2048, "temperature": 0.7},
+        "inferenceConfig": {"maxTokens": 768, "temperature": 0.7},
     }
     if system_msgs:
         body["system"] = [{"text": s} for s in system_msgs]

@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
@@ -22,9 +23,16 @@ _job_counter = 0
 
 async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None):
     _jobs[job_id]["status"] = "running"
+
+    def _emit(msg: str):
+        evs = _jobs[job_id]["events"]
+        evs.append({"t": time.time(), "msg": msg})
+        if len(evs) > 200:  # bound growth
+            del evs[: len(evs) - 200]
+
     try:
         async with SessionLocal() as session:
-            insight = await orchestrate(session, brand_id, custom_questions=custom_questions)
+            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, on_event=_emit)
         if insight:
             _jobs[job_id].update({
                 "status": "completed",
@@ -99,7 +107,7 @@ async def start_audit(
     global _job_counter
     _job_counter += 1
     job_id = f"job_{_job_counter}"
-    _jobs[job_id] = {"status": "queued", "brand_id": brand_id}
+    _jobs[job_id] = {"status": "queued", "brand_id": brand_id, "events": []}
 
     async def _run_with_semaphore(jid: str, bid: int, cq: list[str]):
         async with sem:

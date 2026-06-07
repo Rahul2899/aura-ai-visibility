@@ -31,8 +31,8 @@ export async function createBrand(input: NewBrand): Promise<CreateResult> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: input.name.trim(),
-        domain: input.domain?.trim() || null,
-        industry: input.industry || null,
+        domain: input.domain?.trim() || "",
+        industry: input.industry || "",
         session_id: getSessionId(),
       }),
     });
