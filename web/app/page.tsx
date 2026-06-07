@@ -344,7 +344,7 @@ export default function Home() {
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
                   <p className="text-slate-500 text-xs leading-relaxed font-semibold">
-                    Aura runs about 10 industry-specific buyer questions across four AI models (Nova Pro, Claude Haiku, Llama 3.3, and Mistral Large) to check whether your brand gets recommended.
+                    Aura runs about 10 industry-specific buyer questions across four leading AI models from Anthropic and Amazon to check whether your brand gets recommended.
                   </p>
                 </div>
 
@@ -674,7 +674,7 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
             {[
               { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
-              { step: "2", title: "Four AI models", desc: "Each question runs across Nova Pro, Claude Haiku, Llama 3.3, and Mistral Large in parallel." },
+              { step: "2", title: "Four AI models", desc: "Each question runs across four leading models from Anthropic and Amazon in parallel." },
               { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
             ].map(s => (
               <div key={s.step} className="text-center space-y-2">

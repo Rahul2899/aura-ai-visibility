@@ -406,14 +406,15 @@ async def get_probe_detail(brand_id: int, session_id: str = None, x_admin_key: s
             .limit(10)
         )).all()
 
+        # ProbePerformance aggregates per QUESTION (hit_count = times any model named
+        # the brand, run_count = times asked), not per model. So the honest per-question
+        # signal is simply found-vs-not. The per-MODEL breakdown lives in model-bias.
         return {
             "probes": [
                 {
                     "question": p.prompt_text,
-                    "hit_rate": round(p.hit_count / p.run_count * 100, 1) if p.run_count else 0,
-                    "mentioned": p.hit_count,
-                    "total_models": p.run_count,
-                    "result": "strong" if p.hit_count / max(p.run_count, 1) >= 0.6 else "weak",
+                    "found": p.hit_count > 0,
+                    "result": "strong" if p.hit_count > 0 else "weak",
                 }
                 for p in probes
             ],

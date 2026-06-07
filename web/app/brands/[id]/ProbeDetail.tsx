@@ -4,9 +4,7 @@ import { ChevronDown, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
 
 type Probe = {
   question: string;
-  hit_rate: number;
-  mentioned: number;
-  total_models: number;
+  found: boolean;
   result: "strong" | "weak";
 };
 
@@ -36,7 +34,7 @@ export default function ProbeDetail({ probes, auditDate }: { probes: Probe[]; au
         <div className="px-6 py-3 bg-slate-50/50 flex items-center gap-2">
           <HelpCircle className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
           <p className="text-[11px] text-slate-400 font-semibold">
-            Each question was sent to AI models. A &quot;mention&quot; means the model named your brand in its answer.
+            Each question was sent to the AI models. &quot;Found&quot; means at least one model named your brand. The per-model breakdown is in Model Breakdown above.
           </p>
         </div>
 
@@ -48,22 +46,17 @@ export default function ProbeDetail({ probes, auditDate }: { probes: Probe[]; au
               </span>
               <p className="text-sm text-slate-700 font-medium flex-1 leading-relaxed">{p.question}</p>
               <div className="flex items-center gap-2 flex-shrink-0">
-                {p.result === "strong" ? (
+                {p.found ? (
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 ) : (
                   <XCircle className="w-4 h-4 text-red-400" />
                 )}
-                <span className={`text-xs font-bold tabular px-2 py-0.5 rounded-lg border ${
-                  p.result === "strong"
+                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-lg border ${
+                  p.found
                     ? "text-emerald-700 bg-emerald-50 border-emerald-200"
                     : "text-red-600 bg-red-50 border-red-200"
                 }`}>
-                  {p.mentioned}/{p.total_models} models
-                </span>
-                <span className={`text-xs font-bold tabular w-12 text-right ${
-                  p.hit_rate >= 60 ? "text-emerald-600" : "text-red-500"
-                }`}>
-                  {p.hit_rate}%
+                  {p.found ? "Found" : "Not found"}
                 </span>
               </div>
             </div>

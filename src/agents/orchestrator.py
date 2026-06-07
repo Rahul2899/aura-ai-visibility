@@ -218,6 +218,19 @@ def _bedrock_client():
     return boto3.client("bedrock-runtime", **kwargs)
 
 
+def _brand_matches(target: str, extracted: str) -> bool:
+    """Whole-word match of the target brand against an extracted brand name, so e.g.
+    "Lever" matches "Lever" / "Lever ATS" but NOT "Cleverbit" or "leverage" (a naive
+    substring check would false-positive on those)."""
+    t, e = target.strip().lower(), extracted.strip().lower()
+    if not t:
+        return False
+    if t == e:
+        return True
+    # target appears as a complete word/token within the extracted name
+    return re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", e) is not None
+
+
 async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str, on_event=None) -> dict:
     """Run one model. Returns a dict with `failed` flag so failed calls are excluded from the
     score instead of being counted as a real non-mention (which would corrupt visibility %).
@@ -226,7 +239,7 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
     try:
         result = await client.complete(model=model, messages=[{"role": "user", "content": prompt_text}])
         extraction = await extract_mentions(client, model, result["text"])
-        mentioned = any(target_brand.lower() in m.brand_name.lower() for m in extraction.mentions)
+        mentioned = any(_brand_matches(target_brand, m.brand_name) for m in extraction.mentions)
         if on_event:
             on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
         return {
