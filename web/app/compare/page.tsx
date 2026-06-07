@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { friendlyName, providerKey } from "../lib/models";
 import { getSessionId, getAdminKey } from "../lib/session";
+import { createBrand, validateBrand } from "../lib/brands";
 import {
   ArrowLeft,
   Play,
@@ -45,6 +46,7 @@ export default function ComparePage() {
   const [allBrands, setAllBrands] = useState<BrandOption[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [newName, setNewName] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
   const [data, setData] = useState<BrandData[]>([]);
   const [jobs, setJobs] = useState<Record<number, JobState>>({});
   const [running, setRunning] = useState(false);
@@ -73,19 +75,13 @@ export default function ComparePage() {
   }
 
   async function addAndSelect() {
-    if (!newName.trim()) return;
-    const res = await fetch(`${API}/brands`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newName.trim(),
-        domain: "",
-        session_id: getSessionId()
-      }),
-    });
-    const brand = await res.json();
-    setAllBrands(prev => [...prev, { id: brand.id, name: brand.name, visibility_pct: null }]);
-    setSelected(prev => [...prev, brand.id]);
+    const validationError = validateBrand(newName);
+    if (validationError) { setAddError(validationError); return; }
+    setAddError(null);
+    const result = await createBrand({ name: newName });
+    if (!result.ok) { setAddError(result.error); return; }
+    setAllBrands(prev => [...prev, { id: result.id, name: result.name, visibility_pct: null }]);
+    setSelected(prev => [...prev, result.id]);
     setNewName("");
   }
 
@@ -271,16 +267,19 @@ export default function ComparePage() {
             })}
           </div>
 
-          <div className="flex gap-3">
-            <input value={newName} onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addAndSelect()}
-              placeholder="Or type a new brand to add..."
-              className="flex-1 input-field py-2.5 text-sm"
-              aria-label="New brand name"
-            />
-            <button onClick={addAndSelect} disabled={!newName.trim()} className="btn-primary flex items-center gap-1.5 text-xs font-semibold">
-              <Plus className="w-4 h-4 text-slate-900" /> Add
-            </button>
+          <div className="space-y-1.5">
+            <div className="flex gap-3">
+              <input value={newName} onChange={e => { setNewName(e.target.value); setAddError(null); }}
+                onKeyDown={e => e.key === "Enter" && addAndSelect()}
+                placeholder="Or type a new brand to add..."
+                className="flex-1 input-field py-2.5 text-sm"
+                aria-label="New brand name"
+              />
+              <button onClick={addAndSelect} disabled={!newName.trim()} className="btn-primary flex items-center gap-1.5 text-xs font-semibold">
+                <Plus className="w-4 h-4 text-slate-900" /> Add
+              </button>
+            </div>
+            {addError && <p role="alert" className="text-xs font-semibold text-red-600">{addError}</p>}
           </div>
 
           <div className="flex items-center flex-wrap gap-3 pt-2">

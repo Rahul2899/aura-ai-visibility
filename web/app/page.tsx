@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
 import { getSessionId } from "./lib/session";
+import { createBrand, validateBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
 import {
   Sparkles,
@@ -122,53 +123,22 @@ export default function Home() {
     load();
   }, [load]);
 
-  function validateBrandInput(): string | null {
-    const n = name.trim();
-    if (n.length < 2) return "Brand name must be at least 2 characters.";
-    if (n.length > 100) return "Brand name is too long (max 100 characters).";
-    const d = domain.trim();
-    if (d && !/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(d.replace(/^https?:\/\//, "").replace(/\/.*$/, ""))) {
-      return "Domain looks invalid. Use a format like example.com.";
-    }
-    return null;
-  }
-
   async function addBrand(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    const validationError = validateBrandInput();
+    const validationError = validateBrand(name, domain);
     if (validationError) {
       setFormError(validationError);
       return;
     }
     setAdding(true);
-    try {
-      const res = await fetch(`${API}/brands`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          domain: domain.trim() || null,
-          industry: industry || null,
-          session_id: getSessionId()
-        }),
-      });
-      if (res.status === 429) {
-        setFormError("You've added a lot of brands recently. Please wait a bit and try again.");
-        return;
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setFormError(err.detail?.[0]?.msg ?? err.detail ?? "Couldn't create the brand. Please try again.");
-        return;
-      }
-      const brand = await res.json();
-      window.location.href = `/brands/${brand.id}?autostart=1`;
-    } catch {
-      setFormError("Network error. Check your connection and try again.");
-    } finally {
-      setAdding(false);
+    const result = await createBrand({ name, domain, industry });
+    setAdding(false);
+    if (!result.ok) {
+      setFormError(result.error);
+      return;
     }
+    window.location.href = `/brands/${result.id}?autostart=1`;
   }
 
   async function deleteBrand(id: number) {
@@ -196,23 +166,41 @@ export default function Home() {
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
       {/* Top nav */}
-      <header className="border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md" style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.95)" }}>
-        <div className="flex items-center gap-3">
+      <header className="border-b px-5 sm:px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md" style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.95)" }}>
+        <Link href="/" className="flex items-center gap-3 group">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--accent)] shadow-md shadow-[var(--accent-glow)] select-none">
             <Sparkles className="w-4 h-4 text-white" />
           </div>
-          <span className="font-bold text-sm text-slate-900 tracking-tight">Aura AI — Visibility Engine</span>
-        </div>
+          <span className="font-bold text-sm text-slate-900 tracking-tight group-hover:text-[var(--accent)] transition-colors">Aura AI</span>
+        </Link>
         <span className="text-slate-500 text-xs font-semibold tabular border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-xl select-none">
-          {2 - auditCount} / 2 Audits Available
+          {Math.max(0, 2 - auditCount)} / 2 Audits left
         </span>
       </header>
 
-      <div className="max-w-6xl mx-auto px-6 py-6 space-y-5">
-        {/* KPI strip — single card, connected */}
+      <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
+        {/* Hero — tell a first-time visitor exactly what this is */}
+        <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+            AI Brand Visibility
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight leading-tight">
+            See how often AI models recommend your brand
+          </h1>
+          <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
+            When buyers ask ChatGPT, Claude, or Gemini for recommendations, does your brand show up? Aura runs real buyer questions across multiple AI models and measures your visibility — then tells you how to improve.
+          </p>
+          <div className="pt-1">
+            <a href="#audit-form" className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
+              <Plus className="w-4 h-4 text-white" /> Audit your brand
+            </a>
+          </div>
+        </section>
+
+        {/* KPI strip — single card, connected; stacks on mobile to avoid overflow */}
         {audited.length > 0 && (
           <div className="card overflow-hidden">
-            <div className="grid grid-cols-3 divide-x divide-slate-100">
+            <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
               {[
                 { label: "Brands Tracked", value: brands.length.toString(), sub: `${audited.length} audited` },
                 { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", sub: "across all brands", colored: avg },
@@ -220,7 +208,7 @@ export default function Home() {
               ].map(({ label, value, sub, colored }) => (
                 <div key={label} className="px-6 py-4">
                   <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
-                  <p className={`text-3xl font-bold mt-1 tracking-tight ${colored !== undefined && colored !== null ? (colored >= 60 ? "text-emerald-600" : colored >= 35 ? "text-amber-600" : "text-red-600") : "text-slate-900"}`}>
+                  <p className={`text-2xl sm:text-3xl font-bold mt-1 tracking-tight truncate ${colored !== undefined && colored !== null ? (colored >= 60 ? "text-emerald-600" : colored >= 35 ? "text-amber-600" : "text-red-600") : "text-slate-900"}`}>
                     {value}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>
@@ -232,9 +220,9 @@ export default function Home() {
 
         {/* Bento Layout Grid */}
         <div className="grid grid-cols-12 gap-6">
-          
-          {/* Left Column: List + Chart (col-span-12 lg:col-span-8) */}
-          <div className="col-span-12 lg:col-span-8 space-y-6">
+
+          {/* Left Column: List + Chart. order-2 on mobile so the audit form leads. */}
+          <div className="col-span-12 lg:col-span-8 space-y-6 order-2 lg:order-1">
             
             {/* Brands List / Visual onboarding card */}
             {loading ? (
@@ -334,8 +322,15 @@ export default function Home() {
                   <div className="col-span-5">Brand</div>
                   <div className="col-span-2 text-right">Score</div>
                   <div className="col-span-2 text-right">Trend</div>
-                  <div className="col-span-2 text-right">Probes</div>
+                  <div className="col-span-2 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</div>
                 </div>
+
+                {search && filtered.filter(b => b.visibility_pct !== null).length === 0 && (
+                  <div className="px-6 py-10 text-center">
+                    <p className="text-slate-500 text-sm font-semibold">No brands match “{search}”.</p>
+                    <button onClick={() => setSearch("")} className="text-[var(--accent)] text-xs font-bold mt-1.5 hover:underline">Clear search</button>
+                  </div>
+                )}
 
                 <div className="divide-y divide-slate-50">
                   {filtered.filter(b => b.visibility_pct !== null).map((b, i) => (
@@ -353,12 +348,15 @@ export default function Home() {
                             <span className="text-[10px] font-bold text-slate-600 uppercase">{b.name.slice(0, 2)}</span>
                           </div>
                           <div>
-                            <p className="font-semibold text-sm text-slate-800 group-hover:text-[var(--accent)] transition-colors flex items-center gap-1">
+                            <p className="font-semibold text-sm text-slate-800 group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
                               {b.name}
+                              {b.is_example && (
+                                <span className="text-[9px] font-bold uppercase tracking-wide text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded" title="Pre-loaded example brand">Demo</span>
+                              )}
                               <ChevronRight className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </p>
                             {b.industry && (
-                              <div className="flex items-center gap-1.5 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                 <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{b.industry.split("/")[0].trim()}</span>
                               </div>
                             )}
@@ -416,11 +414,11 @@ export default function Home() {
             )}
           </div>
 
-          {/* Right Column: Sidebar (col-span-12 lg:col-span-4) */}
-          <div className="col-span-12 lg:col-span-4 space-y-6">
-            
+          {/* Right Column: Sidebar. order-1 on mobile so the form is the first thing acted on. */}
+          <div className="col-span-12 lg:col-span-4 space-y-6 order-1 lg:order-2">
+
             {/* Add Brand Form Card — accent border to draw the eye */}
-            <div className="card-cta p-5">
+            <div id="audit-form" className="card-cta p-5 scroll-mt-20">
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-6 h-6 rounded-md bg-[var(--accent-dim)] flex items-center justify-center">
                   <Building2 className="w-3.5 h-3.5 text-[var(--accent)]" />
@@ -530,7 +528,32 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* How it works — methodology / trust layer */}
+        <section className="card p-6 sm:p-8">
+          <h2 className="font-bold text-lg text-slate-900 text-center">How Aura measures AI visibility</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
+            {[
+              { step: "1", title: "Real buyer questions", desc: "We generate ~10 questions a real buyer would ask an AI about your category — not generic prompts." },
+              { step: "2", title: "Multiple AI models", desc: "Each question runs across leading models (Claude, Nova, Llama and more) in parallel." },
+              { step: "3", title: "A visibility score", desc: "We measure how often your brand is mentioned, then show where you're strong and where you're invisible." },
+            ].map(s => (
+              <div key={s.step} className="text-center space-y-2">
+                <div className="w-8 h-8 rounded-full bg-[var(--accent-dim)] text-[var(--accent)] font-bold text-sm flex items-center justify-center mx-auto">{s.step}</div>
+                <p className="font-bold text-sm text-slate-800">{s.title}</p>
+                <p className="text-slate-500 text-xs font-medium leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
+
+      <footer className="border-t mt-8 py-6 px-6 text-center" style={{ borderColor: "var(--border-solid)" }}>
+        <p className="text-xs text-slate-400 font-medium">
+          <span className="font-bold text-slate-500">Aura AI</span> — AI brand visibility analytics ·
+          Results reflect non-deterministic AI responses and may vary between runs.
+        </p>
+      </footer>
     </main>
   );
 }
