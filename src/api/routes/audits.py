@@ -9,7 +9,7 @@ from src.api.auth import is_admin, limit_key, require_owner_or_admin
 from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
-from src.agents.orchestrator import orchestrate
+from src.agents.orchestrator import orchestrate, BrandNotConfirmed
 from src.models import AuditLimit, Brand
 
 
@@ -43,6 +43,10 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
             })
         else:
             _jobs[job_id]["status"] = "failed"
+    except BrandNotConfirmed:
+        # We couldn't confidently identify which company the user means. Distinct
+        # status so the UI can ask for a domain instead of showing a fake/failed audit.
+        _jobs[job_id]["status"] = "unconfirmed"
     except Exception as e:
         _jobs[job_id].update({"status": "failed", "error": str(e)})
 

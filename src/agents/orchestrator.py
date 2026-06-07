@@ -19,57 +19,69 @@ from src.llm.extractor import extract_mentions
 log = structlog.get_logger()
 
 
-async def _web_search_brand(name: str, domain: str | None, industry: str | None) -> str | None:
-    """Enrich brand context via web search before probe generation.
-    Uses Tavily if TAVILY_API_KEY is set; falls back to fetching the brand homepage.
-    Returns a brief text summary, or None if no enrichment available."""
-    tavily_key = os.environ.get("TAVILY_API_KEY")
-
-    if tavily_key:
-        try:
-            query = f"{name} {industry or ''} software features pricing use cases".strip()
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": tavily_key,
-                        "query": query,
-                        "search_depth": "basic",
-                        "max_results": 4,
-                        "include_answer": True,
-                    }
-                )
-            if r.status_code == 200:
-                data = r.json()
-                answer = data.get("answer", "")
-                snippets = " | ".join(
-                    res.get("content", "")[:300]
-                    for res in data.get("results", [])[:3]
-                )
-                summary = f"{answer} {snippets}".strip()[:1200]
-                log.info("web_search_ok", brand=name, chars=len(summary))
+async def _scrape_homepage(name: str, domain: str) -> str | None:
+    """Fetch the brand's own homepage (SSRF-safe). This is the ONE source that is
+    unambiguously the right company — no entity-confusion risk."""
+    safe_url = _safe_https_url(domain)
+    if not safe_url:
+        log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
+            r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
+        if r.status_code == 200:
+            summary = extract_page_signal(r.text)
+            if summary:
+                log.info("homepage_fetch_ok", brand=name, chars=len(summary))
                 return summary
-        except Exception as e:
-            log.warning("web_search_failed", brand=name, error=str(e))
-
-    # Fallback: scrape brand homepage if domain is known (SSRF-safe)
-    if domain:
-        safe_url = _safe_https_url(domain)
-        if safe_url:
-            try:
-                async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
-                    r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
-                if r.status_code == 200:
-                    summary = extract_page_signal(r.text)
-                    if summary:
-                        log.info("homepage_fetch_ok", brand=name, chars=len(summary))
-                        return summary
-            except Exception as e:
-                log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
-        else:
-            log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
-
+    except Exception as e:
+        log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
     return None
+
+
+async def _tavily_search(name: str, domain: str | None, industry: str | None) -> str | None:
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_key:
+        return None
+    # Anchor the query to the specific entity: prefer the domain (kills name
+    # collisions), then name+industry. Obscure brands sharing a name with a bigger
+    # company is exactly why the domain matters most.
+    anchor = domain or f"{name} {industry or ''}"
+    query = f"{name} {anchor} company products features pricing".strip()
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": tavily_key, "query": query, "search_depth": "basic",
+                      "max_results": 4, "include_answer": True},
+            )
+        if r.status_code == 200:
+            data = r.json()
+            answer = data.get("answer", "")
+            snippets = " | ".join(res.get("content", "")[:300] for res in data.get("results", [])[:3])
+            summary = f"{answer} {snippets}".strip()[:1200]
+            log.info("web_search_ok", brand=name, chars=len(summary))
+            return summary
+    except Exception as e:
+        log.warning("web_search_failed", brand=name, error=str(e))
+    return None
+
+
+async def _web_search_brand(name: str, domain: str | None, industry: str | None) -> tuple[str | None, str]:
+    """Gather brand context. Returns (summary, source) where source is:
+      "homepage" — scraped the brand's own domain: unambiguously the right company
+      "search"   — name-based web search: MAY be a different same-named entity, verify
+      "none"     — nothing found.
+    Domain-first: when a domain is given, the homepage is authoritative, so we use it
+    and skip the ambiguity-prone name search entirely."""
+    if domain:
+        homepage = await _scrape_homepage(name, domain)
+        if homepage:
+            return homepage, "homepage"
+    summary = await _tavily_search(name, domain, industry)
+    if summary:
+        return summary, "search"
+    return None, "none"
 
 
 def extract_page_signal(html: str) -> str:
@@ -116,7 +128,19 @@ def _safe_https_url(domain: str) -> str | None:
     import socket
     import re as _re
 
-    # Must be a bare hostname: letters, digits, hyphens, dots — no scheme/path/port
+    # Normalize real-world input to a bare host: users paste full URLs
+    # ("https://perulatus.com/en/homepage-en/"), with www, ports, or paths.
+    # Strip all of that down to the hostname, THEN apply the strict SSRF check.
+    domain = (domain or "").strip()
+    domain = _re.sub(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", "", domain)  # scheme
+    domain = domain.split("/")[0].split("?")[0].split("#")[0]      # path/query/fragment
+    domain = domain.split("@")[-1]                                  # userinfo
+    domain = domain.split(":")[0]                                   # port
+    domain = domain.rstrip(".").lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+
+    # Must now be a bare hostname: letters, digits, hyphens, dots — no scheme/path/port
     if not _re.fullmatch(r"[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*", domain):
         return None
 
@@ -283,10 +307,13 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
         "industry": brand.industry or "unknown",
         "competitors": brand.competitors or [],
     }
-    # Enrich with live web data so probes reference real features/positioning
-    web_summary = await _web_search_brand(brand.name, brand.domain, brand.industry)
+    # Enrich with live web data so probes reference real features/positioning.
+    # `source` tells the caller whether this is the brand's own homepage (trusted)
+    # or a name-based search (may be a different same-named entity — needs verifying).
+    web_summary, source = await _web_search_brand(brand.name, brand.domain, brand.industry)
     if web_summary:
         context["web_context"] = web_summary
+    context["_source"] = source
     return context
 
 
@@ -313,7 +340,9 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
             modelId=QUESTION_MODEL,
             system=[{"text": QUESTION_GEN_PROMPT}],
             messages=[{"role": "user", "content": [{"text": user}]}],
-            inferenceConfig={"maxTokens": 1500, "temperature": 0.7},
+            # Conversational, human-style questions are long; 2048 gives headroom so
+            # the JSON isn't truncated mid-array (which broke parsing before).
+            inferenceConfig={"maxTokens": 2048, "temperature": 0.7},
         )
     )
     raw = resp["output"]["message"]["content"][0]["text"].strip()
@@ -322,8 +351,11 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
     try:
         generated = json.loads(raw).get("questions", [])
     except (json.JSONDecodeError, KeyError, IndexError):
-        log.warning("question_gen_parse_failed", raw=raw[:200])
-        generated = []
+        # Salvage: even if the JSON was truncated mid-array, pull out every complete
+        # "...": quoted string so a long response still yields usable questions.
+        generated = re.findall(r'"((?:[^"\\]|\\.){10,})"', raw)
+        generated = [g.encode().decode("unicode_escape") for g in generated]
+        log.warning("question_gen_salvaged", recovered=len(generated), raw=raw[:120])
     custom = [q.strip() for q in (custom_questions or []) if q.strip()]
     # Custom questions first, then generated; cap to keep audits bounded.
     return (custom + [q for q in generated if isinstance(q, str) and q.strip()])[:12]
@@ -358,6 +390,41 @@ async def _generate_analysis(bedrock, brand_name: str, visibility_pct: float, pr
         return {"summary": f"{brand_name} scored {visibility_pct}% AI visibility across probes.", "key_findings": []}
 
 
+async def _verify_entity(bedrock, name: str, industry: str | None, web_context: str) -> bool:
+    """Cheap check: does the web_context actually describe a company called `name`
+    (in `industry`, if given)? Guards against auditing a different same-named entity
+    when the data came from a name-based search rather than the brand's own domain.
+    Returns True if it's a confident match."""
+    prompt = (
+        f"A user wants to audit a company called \"{name}\""
+        + (f" in the \"{industry}\" industry." if industry and industry != "unknown" else ".")
+        + " Here is web search data that was retrieved:\n\n"
+        + web_context[:1500]
+        + "\n\nDoes this data clearly describe THAT specific company (not a different "
+        "company that happens to share the name, and not generic/unrelated results)? "
+        'Answer ONLY with JSON: {"match": true|false}.'
+    )
+    try:
+        resp = await asyncio.to_thread(
+            lambda: bedrock.converse(
+                modelId=ORCHESTRATOR_MODEL,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 50, "temperature": 0},
+            )
+        )
+        raw = resp["output"]["message"]["content"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].removeprefix("json").strip()
+        return bool(json.loads(raw).get("match", False))
+    except Exception as e:
+        log.warning("entity_verify_failed", brand=name, error=str(e))
+        return False  # fail closed: if we can't verify, treat as unconfirmed
+
+
+class BrandNotConfirmed(Exception):
+    """Raised when we cannot confidently identify which company the user means."""
+
+
 async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, on_event=None) -> Insight | None:
     """Two-phase audit: (A) a stronger model writes buyer questions grounded in live
     web context, (B) probes run in parallel across the model panel and a fast model
@@ -380,6 +447,23 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     # --- Phase A: understand the brand, then write the questions (stronger model) ---
     emit("Searching the web for brand context…")
     context = await _get_brand_context_tool(session, brand_id)
+    source = context.pop("_source", "none")
+
+    # Entity-resolution gate. The brand's own homepage is authoritative. But a
+    # name-based search can return a DIFFERENT company with the same name (e.g. an
+    # obscure 20-person startup vs a bigger namesake) — auditing that is worse than
+    # no answer. So when we only have search data (no trusted domain), verify the
+    # match; if it fails, stop and ask the user for a domain rather than fake a score.
+    if source != "homepage":
+        web_ctx = context.get("web_context", "")
+        if not web_ctx:
+            log.warning("brand_unconfirmed_no_data", brand_id=brand_id, name=target_brand)
+            raise BrandNotConfirmed(target_brand)
+        emit("Confirming brand identity…")
+        if not await _verify_entity(bedrock, target_brand, context.get("industry"), web_ctx):
+            log.warning("brand_unconfirmed_mismatch", brand_id=brand_id, name=target_brand)
+            raise BrandNotConfirmed(target_brand)
+
     emit("Gathered brand context. Generating questions…")
     questions = await _generate_questions(bedrock, context, custom_questions)
     if not questions:

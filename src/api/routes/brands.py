@@ -188,7 +188,9 @@ async def create_brand(body: BrandCreate, request: Request, x_admin_key: str = H
     if body.session_id == "admin" and not is_admin("admin", x_admin_key):
         raise HTTPException(status_code=422, detail="Reserved session_id")
 
-    if not _create_limiter.allow(client_ip(request)):
+    # Admins (verified above) are exempt from the per-IP create limiter, same as
+    # they're exempt from the audit limit.
+    if not is_admin(body.session_id, x_admin_key) and not _create_limiter.allow(client_ip(request)):
         raise HTTPException(
             status_code=429,
             detail="Too many brands created. Please wait before adding more.",

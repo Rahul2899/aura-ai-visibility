@@ -220,11 +220,14 @@ export default function Home() {
 
   async function deleteBrand(id: number) {
     const targetBrand = brands.find(b => b.id === id);
-    if (targetBrand?.is_example) return;
-    if (!confirm("Delete this brand and all its data?")) return;
+    if (targetBrand?.is_example) return;  // examples are protected (shared demo data)
+    if (!confirm(`Delete "${targetBrand?.name ?? "this brand"}" and all its data? This cannot be undone.`)) return;
     setDeleting(id);
     const sess = getSessionId();
-    const res = await fetch(`${API}/brands/${id}?session_id=${sess}`, { method: "DELETE" });
+    // Admin must send X-Admin-Key to delete brands owned by other sessions.
+    const headers: Record<string, string> = {};
+    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
+    const res = await fetch(`${API}/brands/${id}?session_id=${sess}`, { method: "DELETE", headers });
     if (res.status === 403) alert("You can only delete brands you added.");
     setDeleting(null);
     load();

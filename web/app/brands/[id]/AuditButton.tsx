@@ -84,6 +84,12 @@ export default function AuditButton({ brandId }: { brandId: number }) {
           localStorage.removeItem(jobKey);
           setLog(prev => [...prev, `✓ Audit finalized: ${j.visibility_pct?.toFixed(1)}% brand visibility`]);
           setTimeout(() => reloadPage(), 1200);
+        } else if (j.status === "unconfirmed") {
+          // Couldn't confidently identify which company the user means.
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(jobKey);
+          started.current = false;
+          setLog(prev => [...prev, "✗ Couldn't confirm this brand. Add your website domain so we audit the right company."]);
         } else if (j.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
           localStorage.removeItem(jobKey);
@@ -159,6 +165,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
   const running = job?.status === "running" || job?.status === "queued";
   const done = job?.status === "completed";
   const failed = job?.status === "failed";
+  const unconfirmed = job?.status === "unconfirmed";
 
   const customQuestions = parseCustomQuestions();
 
@@ -266,6 +273,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
               {running && <span className="live-dot" />}
               {done && <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Complete</span>}
               {failed && <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Failed</span>}
+              {unconfirmed && <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brand unconfirmed</span>}
               {running && <span className="text-[10px] text-zinc-500 font-bold tabular">{job?.probe_count ?? 0}/10 queries</span>}
             </div>
           </div>
