@@ -102,6 +102,14 @@ async def start_audit(
             raise HTTPException(status_code=400, detail="Cannot run new audits on preloaded example brands.")
         require_owner_or_admin(brand, session_id, x_admin_key)
 
+    # If an audit for this brand is already in flight, don't start another (and don't
+    # charge a limit slot) — tell the user to wait for the running one to finish.
+    if any(j.get("brand_id") == brand_id and j.get("status") in ("queued", "running") for j in _jobs.values()):
+        raise HTTPException(
+            status_code=409,
+            detail="An audit for this brand is already running. Please wait for it to finish.",
+        )
+
         if not is_admin(session_id, x_admin_key):
             key = rate_key = limit_key(session_id, client_ip(request))
             # Atomic upsert + increment. Two audits firing at once for the same key
