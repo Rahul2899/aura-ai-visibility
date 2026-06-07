@@ -162,9 +162,20 @@ export default function BrandPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                <p className="text-slate-800 font-bold text-lg">No audits executed yet</p>
-                <p className="text-slate-500 text-sm font-semibold">Click &quot;Run Audit&quot; above to measure how visible {brand.name} is across AI models.</p>
+              <div className="space-y-5 max-w-md mx-auto">
+                <div className="w-14 h-14 rounded-2xl bg-[var(--accent-dim)] flex items-center justify-center mx-auto">
+                  <Sparkles className="w-7 h-7 text-[var(--accent)]" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
+                  <p className="text-slate-500 text-sm font-semibold leading-relaxed">
+                    We&apos;ll ask ~10 buyer-style questions across multiple AI models and measure how often {brand.name} gets recommended — then show you exactly where to improve.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
+                  <ArrowUp className="w-4 h-4 rotate-45" />
+                  Click &quot;Run Audit&quot; in the top-right to begin
+                </div>
               </div>
             )}
           </div>

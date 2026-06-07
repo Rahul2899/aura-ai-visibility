@@ -89,6 +89,7 @@ export default function Home() {
   const [industry, setIndustry] = useState("");
   const [industries, setIndustries] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [limitReached, setLimitReached] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
@@ -121,9 +122,25 @@ export default function Home() {
     load();
   }, [load]);
 
+  function validateBrandInput(): string | null {
+    const n = name.trim();
+    if (n.length < 2) return "Brand name must be at least 2 characters.";
+    if (n.length > 100) return "Brand name is too long (max 100 characters).";
+    const d = domain.trim();
+    if (d && !/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(d.replace(/^https?:\/\//, "").replace(/\/.*$/, ""))) {
+      return "Domain looks invalid. Use a format like example.com.";
+    }
+    return null;
+  }
+
   async function addBrand(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    setFormError(null);
+    const validationError = validateBrandInput();
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
     setAdding(true);
     try {
       const res = await fetch(`${API}/brands`, {
@@ -136,15 +153,19 @@ export default function Home() {
           session_id: getSessionId()
         }),
       });
+      if (res.status === 429) {
+        setFormError("You've added a lot of brands recently. Please wait a bit and try again.");
+        return;
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.detail?.[0]?.msg ?? err.detail ?? "Failed to create brand. Please try again.");
+        setFormError(err.detail?.[0]?.msg ?? err.detail ?? "Couldn't create the brand. Please try again.");
         return;
       }
       const brand = await res.json();
       window.location.href = `/brands/${brand.id}?autostart=1`;
     } catch {
-      alert("Network error. Please check your connection and try again.");
+      setFormError("Network error. Check your connection and try again.");
     } finally {
       setAdding(false);
     }
@@ -458,6 +479,12 @@ export default function Home() {
                     <ChevronDown className="absolute right-2.5 top-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
+
+                {formError && (
+                  <p role="alert" className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    {formError}
+                  </p>
+                )}
 
                 <button type="submit" disabled={adding || !name.trim() || limitReached}
                   className="w-full btn-primary flex items-center justify-center gap-1.5 py-2.5 mt-1"

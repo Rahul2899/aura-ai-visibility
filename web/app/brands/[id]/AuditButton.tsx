@@ -197,6 +197,27 @@ export default function AuditButton({ brandId }: { brandId: number }) {
         )}
       </button>
 
+      {/* Phase stepper — shows the user what stage the audit is in */}
+      {(running || done) && (
+        <div className="w-80 flex items-center gap-1.5">
+          {[
+            { key: "questions", label: "Questions" },
+            { key: "probing", label: "Probing" },
+            { key: "analyzing", label: "Analyzing" },
+          ].map((p, idx) => {
+            const probes = job?.probe_count ?? 0;
+            const phase = done ? 3 : probes > 0 ? 2 : 1; // 1=questions,2=probing,3=done
+            const active = idx + 1 <= phase;
+            return (
+              <div key={p.key} className="flex-1 flex flex-col items-center gap-1">
+                <div className={`w-full h-1 rounded-full transition-colors ${active ? "bg-[var(--accent)]" : "bg-slate-200"}`} />
+                <span className={`text-[9px] font-bold uppercase tracking-wide ${active ? "text-[var(--accent)]" : "text-slate-300"}`}>{p.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* High-fidelity Live Log Console */}
       {log.length > 0 && (
         <div
