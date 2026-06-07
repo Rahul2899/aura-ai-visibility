@@ -21,6 +21,9 @@ git checkout master
 git pull origin master
 
 echo "==> Building and starting all services"
+# The app applies idempotent schema migrations (the _MIGRATIONS list in
+# src/api/main.py: ADD COLUMN IF NOT EXISTS, etc.) automatically on startup,
+# so no separate migrate step is needed.
 docker compose up -d --build
 
 echo "==> Waiting for the API to come up"
