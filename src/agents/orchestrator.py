@@ -340,7 +340,13 @@ REALITY RULES — every question must make factual sense for THIS brand:
 - Write how a real person actually types to an AI: natural, with real context and scenario ("a 20-person startup that needs docs and project tracking"), not terse keyword queries.
 - Keep each question to ONE sentence, under 25 words. Plain punctuation only: use commas and periods, never em-dashes or en-dashes.
 - Use only real competitor names (from context/web_context).
-- Mix types: brand-direct (features/pricing/compliance), category recommendation (scale+industry+pain point), feature-specific, competitor comparison, regional/market.
+
+MOST questions (at least 7 of 10) must be CATEGORY questions that do NOT name this
+brand — they describe a need and ask what to use ("best AI meeting notetaker for a
+remote team of 10", "which expense tool works for a 50-person B2B SaaS startup").
+These test whether the brand surfaces on its own, which is the real measure.
+The remaining 2-3 may name the brand directly (pricing, integrations, compliance,
+or a head-to-head vs a named competitor). Do not exceed 3 that name the brand.
 
 Return ONLY a JSON object: {"questions": ["...", "..."]}. No prose, no markdown fences."""
 
@@ -499,17 +505,33 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
         return None
 
     # --- Phase B: run every question across the model panel (parallel), collect results ---
+    # CRITICAL: only "category" questions (which do NOT name the brand) count toward the
+    # visibility score — that measures whether the brand surfaces ORGANICALLY when a buyer
+    # asks about the category. "Brand-direct" questions (which name the brand) are run for
+    # the detail view but excluded from scoring, since a model trivially echoes a name we
+    # handed it (that would inflate every brand toward 100% and measure nothing real).
     probe_results = []
     for i, q in enumerate(questions, 1):
+        is_brand_direct = _brand_matches(target_brand, q)
         emit(f"Asking {len(MODEL_CONFIGS)} models: \"{q[:60]}…\"")
         result = await _run_probe_tool(session, brand_id, q, target_brand, on_event=emit)
-        for model, mentioned in result.get("breakdown", {}).items():
-            model_hits.setdefault(model, []).append(mentioned == "yes")
-        probe_results.append({"question": q, "visibility_pct": result["visibility_pct"], "models": result.get("breakdown", {})})
+        if not is_brand_direct:
+            for model, mentioned in result.get("breakdown", {}).items():
+                model_hits.setdefault(model, []).append(mentioned == "yes")
+        probe_results.append({
+            "question": q, "visibility_pct": result["visibility_pct"],
+            "models": result.get("breakdown", {}), "scored": not is_brand_direct,
+        })
         emit(f"Probe {i}: {result['visibility_pct']}% visible")
-        log.info("probe_done", probe_count=i, visibility_pct=result["visibility_pct"])
+        log.info("probe_done", probe_count=i, visibility_pct=result["visibility_pct"], scored=not is_brand_direct)
 
-    # Visibility from actual probe results (total hits across every probe×model / total results).
+    # Visibility = organic mentions on category questions only. If the model generated
+    # all brand-direct questions (no category ones), fall back to all so we never divide
+    # by zero / show a meaningless 0%.
+    if not model_hits:
+        for r in probe_results:
+            for model, mentioned in r["models"].items():
+                model_hits.setdefault(model, []).append(mentioned == "yes")
     visibility_pct = compute_visibility(model_hits)
     model_breakdown = {m: round(sum(h) / len(h) * 100, 1) for m, h in model_hits.items() if h}
     emit(f"Scoring visibility… {visibility_pct}%")

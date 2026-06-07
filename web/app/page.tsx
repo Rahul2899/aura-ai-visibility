@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
-import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey } from "./lib/session";
+import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey, exitAdmin } from "./lib/session";
 import { createBrand, validateBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
 import {
@@ -254,9 +254,12 @@ export default function Home() {
           <span className="font-bold text-sm text-slate-900 tracking-tight group-hover:text-[var(--accent)] transition-colors">Aura AI</span>
         </Link>
         {admin ? (
-          <span className="text-[var(--accent)] text-xs font-bold tabular border border-[var(--border-2)] bg-[var(--accent-dim)] px-3 py-1.5 rounded-xl select-none">
+          <button
+            onClick={() => { if (confirm("Exit admin mode?")) { exitAdmin(); window.location.reload(); } }}
+            title="Click to exit admin mode"
+            className="text-[var(--accent)] text-xs font-bold tabular border border-[var(--border-2)] bg-[var(--accent-dim)] px-3 py-1.5 rounded-xl hover:bg-[var(--accent)] hover:text-white transition-colors">
             ADMIN · unlimited
-          </span>
+          </button>
         ) : (
           <span className="text-slate-500 text-xs font-semibold tabular border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-xl select-none">
             {Math.max(0, 2 - auditCount)} / 2 Audits left

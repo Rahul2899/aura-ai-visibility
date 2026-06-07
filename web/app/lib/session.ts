@@ -19,24 +19,34 @@ export function getSessionId(): string {
   return session;
 }
 
+// Admin key lives in localStorage so admin mode survives a reload or tab close —
+// otherwise brands created as admin (owned by session "admin") would vanish from the
+// new session on refresh. The server still verifies the real key on every privileged
+// call, so this client persistence is a convenience, not a security boundary. Use
+// exitAdmin() to clear it explicitly.
 export function isAdminMode(): boolean {
   if (typeof window === "undefined") return false;
-  // Key lives in sessionStorage — clears when tab closes
-  return localStorage.getItem("aura_admin_mode") === "true" && !!sessionStorage.getItem("aura_admin_key");
+  return localStorage.getItem("aura_admin_mode") === "true" && !!localStorage.getItem("aura_admin_key");
 }
 
 export function setAdminMode(enabled: boolean): void {
   if (typeof window === "undefined") return;
   localStorage.setItem("aura_admin_mode", enabled ? "true" : "false");
-  if (!enabled) sessionStorage.removeItem("aura_admin_key");
+  if (!enabled) localStorage.removeItem("aura_admin_key");
 }
 
 export function getAdminKey(): string {
   if (typeof window === "undefined") return "";
-  return sessionStorage.getItem("aura_admin_key") || "";
+  return localStorage.getItem("aura_admin_key") || "";
 }
 
 export function setAdminKey(key: string): void {
   if (typeof window === "undefined") return;
-  sessionStorage.setItem("aura_admin_key", key);
+  localStorage.setItem("aura_admin_key", key);
+}
+
+export function exitAdmin(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("aura_admin_mode");
+  localStorage.removeItem("aura_admin_key");
 }
