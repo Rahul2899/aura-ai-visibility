@@ -19,7 +19,9 @@ import {
   Globe,
   ChevronDown,
   Building2,
-  RefreshCw
+  RefreshCw,
+  TrendingUp,
+  TrendingDown
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -129,8 +131,9 @@ function TrendPill({ v }: { v: number | null }) {
   if (v === null || v === 0) return <span className="text-slate-400 text-xs font-semibold px-2 py-1 bg-slate-100 rounded-lg border border-slate-200">—</span>;
   const up = v > 0;
   return (
-    <span className={`text-xs font-semibold px-2 py-1 rounded-lg flex items-center gap-1 w-fit ${up ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
-      {up ? "▲" : "▼"} {Math.abs(v).toFixed(1)}%
+    <span className={`text-xs font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1 w-fit ${up ? "bg-emerald-50 text-emerald-700 border border-emerald-300" : "bg-red-50 text-red-600 border border-red-300"}`}>
+      {up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+      {up ? "+" : ""}{v.toFixed(1)}%
     </span>
   );
 }
@@ -384,10 +387,10 @@ export default function Home() {
                   {/* Search / actions bar */}
                   <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative">
-                      <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                       <input value={search} onChange={e => setSearch(e.target.value)}
                         placeholder="Search..."
-                        className="w-full sm:w-48 input-field pl-9 py-2 text-xs"
+                        className="w-full sm:w-48 input-field pl-10 py-2 text-xs"
                         aria-label="Search brand names"
                       />
                     </div>
