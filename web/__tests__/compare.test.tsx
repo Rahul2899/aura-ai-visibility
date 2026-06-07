@@ -158,17 +158,17 @@ describe("Multi-Brand Comparison Page Component", () => {
     const alphaChip = screen.getByRole("button", { name: /Alpha App/ });
     const betaChip = screen.getAllByRole("button", { name: /^Beta App/ })[0];
 
-    // Alpha and Gamma auto-selected on mount (first 2 audited brands)
+    // Compare now opens EMPTY — nothing is auto-selected; the user picks brands.
+    expect(alphaChip).toHaveAttribute("aria-pressed", "false");
+    expect(betaChip).toHaveAttribute("aria-pressed", "false");
+
+    // Toggle alpha on
+    await act(async () => { fireEvent.click(alphaChip); });
     expect(alphaChip).toHaveAttribute("aria-pressed", "true");
-    expect(betaChip).toHaveAttribute("aria-pressed", "false");
 
-    // Toggle beta on
-    await act(async () => { fireEvent.click(betaChip); });
-    expect(betaChip).toHaveAttribute("aria-pressed", "true");
-
-    // Toggle beta off
-    await act(async () => { fireEvent.click(betaChip); });
-    expect(betaChip).toHaveAttribute("aria-pressed", "false");
+    // Toggle alpha off
+    await act(async () => { fireEvent.click(alphaChip); });
+    expect(alphaChip).toHaveAttribute("aria-pressed", "false");
   });
 
   it("supports adding a new brand option and auto-selecting it", async () => {
@@ -204,18 +204,39 @@ describe("Multi-Brand Comparison Page Component", () => {
     });
   });
 
-  it("shows parallel audit button when two brands are selected", async () => {
+  it("enables the compare button only after the user picks two brands", async () => {
     global.fetch = createFetchMock();
     render(<ComparePage />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Run 2 audits in parallel/ })).toBeInTheDocument();
+      expect(screen.getAllByText("Alpha App").length).toBeGreaterThan(0);
+    });
+
+    // Compare opens empty: the button reads "Compare brands" and is disabled.
+    const runBtn = screen.getByRole("button", { name: /Compare brands/ });
+    expect(runBtn).toBeDisabled();
+
+    // Pick two brands, then the button enables and reflects the count.
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Alpha App/ })); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: /^Beta App/ })[0]); });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Compare 2 brands/ })).toBeEnabled();
     });
   });
 
-  it("auto-loads comparison matrix for pre-selected audited brands", async () => {
+  it("loads the comparison matrix after the user selects audited brands", async () => {
     global.fetch = createFetchMock();
     render(<ComparePage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Alpha App").length).toBeGreaterThan(0);
+    });
+
+    // Manually select two audited brands, then load the report matrix.
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Alpha App/ })); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: /^Beta App/ })[0]); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Load report matrix/ })); });
 
     await waitFor(() => {
       expect(screen.getByText("Model Bias Matrix")).toBeInTheDocument();
@@ -223,6 +244,5 @@ describe("Multi-Brand Comparison Page Component", () => {
 
     expect(screen.getByText("Key Differentiator")).toBeInTheDocument();
     expect(screen.getAllByText("Nova Pro").length).toBeGreaterThan(0);
-    expect(screen.getByText("Alpha gains visibility")).toBeInTheDocument();
   });
 });

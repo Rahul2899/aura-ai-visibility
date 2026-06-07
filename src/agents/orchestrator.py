@@ -19,57 +19,69 @@ from src.llm.extractor import extract_mentions
 log = structlog.get_logger()
 
 
-async def _web_search_brand(name: str, domain: str | None, industry: str | None) -> str | None:
-    """Enrich brand context via web search before probe generation.
-    Uses Tavily if TAVILY_API_KEY is set; falls back to fetching the brand homepage.
-    Returns a brief text summary, or None if no enrichment available."""
-    tavily_key = os.environ.get("TAVILY_API_KEY")
-
-    if tavily_key:
-        try:
-            query = f"{name} {industry or ''} software features pricing use cases".strip()
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": tavily_key,
-                        "query": query,
-                        "search_depth": "basic",
-                        "max_results": 4,
-                        "include_answer": True,
-                    }
-                )
-            if r.status_code == 200:
-                data = r.json()
-                answer = data.get("answer", "")
-                snippets = " | ".join(
-                    res.get("content", "")[:300]
-                    for res in data.get("results", [])[:3]
-                )
-                summary = f"{answer} {snippets}".strip()[:1200]
-                log.info("web_search_ok", brand=name, chars=len(summary))
+async def _scrape_homepage(name: str, domain: str) -> str | None:
+    """Fetch the brand's own homepage (SSRF-safe). This is the ONE source that is
+    unambiguously the right company — no entity-confusion risk."""
+    safe_url = _safe_https_url(domain)
+    if not safe_url:
+        log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
+            r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
+        if r.status_code == 200:
+            summary = extract_page_signal(r.text)
+            if summary:
+                log.info("homepage_fetch_ok", brand=name, chars=len(summary))
                 return summary
-        except Exception as e:
-            log.warning("web_search_failed", brand=name, error=str(e))
-
-    # Fallback: scrape brand homepage if domain is known (SSRF-safe)
-    if domain:
-        safe_url = _safe_https_url(domain)
-        if safe_url:
-            try:
-                async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
-                    r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
-                if r.status_code == 200:
-                    summary = extract_page_signal(r.text)
-                    if summary:
-                        log.info("homepage_fetch_ok", brand=name, chars=len(summary))
-                        return summary
-            except Exception as e:
-                log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
-        else:
-            log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
-
+    except Exception as e:
+        log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
     return None
+
+
+async def _tavily_search(name: str, domain: str | None, industry: str | None) -> str | None:
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_key:
+        return None
+    # Anchor the query to the specific entity: prefer the domain (kills name
+    # collisions), then name+industry. Obscure brands sharing a name with a bigger
+    # company is exactly why the domain matters most.
+    anchor = domain or f"{name} {industry or ''}"
+    query = f"{name} {anchor} company products features pricing".strip()
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": tavily_key, "query": query, "search_depth": "basic",
+                      "max_results": 4, "include_answer": True},
+            )
+        if r.status_code == 200:
+            data = r.json()
+            answer = data.get("answer", "")
+            snippets = " | ".join(res.get("content", "")[:300] for res in data.get("results", [])[:3])
+            summary = f"{answer} {snippets}".strip()[:1200]
+            log.info("web_search_ok", brand=name, chars=len(summary))
+            return summary
+    except Exception as e:
+        log.warning("web_search_failed", brand=name, error=str(e))
+    return None
+
+
+async def _web_search_brand(name: str, domain: str | None, industry: str | None) -> tuple[str | None, str]:
+    """Gather brand context. Returns (summary, source) where source is:
+      "homepage" — scraped the brand's own domain: unambiguously the right company
+      "search"   — name-based web search: MAY be a different same-named entity, verify
+      "none"     — nothing found.
+    Domain-first: when a domain is given, the homepage is authoritative, so we use it
+    and skip the ambiguity-prone name search entirely."""
+    if domain:
+        homepage = await _scrape_homepage(name, domain)
+        if homepage:
+            return homepage, "homepage"
+    summary = await _tavily_search(name, domain, industry)
+    if summary:
+        return summary, "search"
+    return None, "none"
 
 
 def extract_page_signal(html: str) -> str:
@@ -116,7 +128,19 @@ def _safe_https_url(domain: str) -> str | None:
     import socket
     import re as _re
 
-    # Must be a bare hostname: letters, digits, hyphens, dots — no scheme/path/port
+    # Normalize real-world input to a bare host: users paste full URLs
+    # ("https://perulatus.com/en/homepage-en/"), with www, ports, or paths.
+    # Strip all of that down to the hostname, THEN apply the strict SSRF check.
+    domain = (domain or "").strip()
+    domain = _re.sub(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", "", domain)  # scheme
+    domain = domain.split("/")[0].split("?")[0].split("#")[0]      # path/query/fragment
+    domain = domain.split("@")[-1]                                  # userinfo
+    domain = domain.split(":")[0]                                   # port
+    domain = domain.rstrip(".").lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+
+    # Must now be a bare hostname: letters, digits, hyphens, dots — no scheme/path/port
     if not _re.fullmatch(r"[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*", domain):
         return None
 
@@ -153,9 +177,24 @@ def _safe_https_url(domain: str) -> str | None:
 
     return f"https://{domain}"
 
-ORCHESTRATOR_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-MAX_STEPS = 30
+# Two-phase: a stronger model writes the probe questions (where human-buyer framing
+# matters most — one call, so the cost is contained), a fast/cheap model does the
+# analysis/summary in phase B.
+QUESTION_MODEL = "eu.anthropic.claude-sonnet-4-6"
+ORCHESTRATOR_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"  # phase B (analysis)
 MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") for m in BEDROCK_MODELS]
+
+# Friendly names for the live activity feed. .get fallback means a model swap can't crash the feed.
+MODEL_DISPLAY = {
+    "eu.anthropic.claude-sonnet-4-6": "Claude Sonnet 4.6",
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
+    "eu.amazon.nova-2-lite-v1:0": "Nova 2 Lite",
+    "eu.amazon.nova-pro-v1:0": "Nova Pro",
+}
+
+
+def friendly(model: str) -> str:
+    return MODEL_DISPLAY.get(model, model.split(".")[-1].split("-")[0].title())
 
 
 def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
@@ -168,83 +207,6 @@ def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
     hits = sum(sum(h) for h in model_hits.values())
     return round(hits / total * 100, 1)
 
-SYSTEM_PROMPT = """You are an AI brand visibility analyst. AI models learn from web content — your job is to measure how visible a brand is in AI responses AND tell the marketing team how to improve it.
-
-Steps:
-1. Call get_brand_context. The response includes name, domain, industry, competitors, and optionally web_context (live search snippets about the brand).
-2. If web_context is present, read it carefully — extract real product features, pricing model, target customers, and differentiators. Use these specifics to write probe questions that reference actual capabilities (e.g. "Which ATS supports async video interviews and HRIS sync?" not "What is the best ATS?").
-3. Use the brand's industry to write 8-10 probe questions that match how REAL BUYERS in that sector search for solutions. If industry is "unknown", infer it from the brand name and domain. Do NOT ask generic "Tell me about brand X" queries. Write realistic search-intent prompts:
-   - Brand-Direct: Questions seeking specific technical, pricing, integration, or compliance details (e.g., "Does [Brand] support HIPAA compliance?" or "Can I connect [Brand] to Salesforce?").
-   - Category Recommendation: Natural language recommendation queries detailing scale, industry, and pain point (e.g., "What is the best expense management software for a B2B SaaS startup with 50 employees?").
-   - Feature-Specific: Prompts looking for solutions with specific capabilities (e.g., "Which virtual card systems allow instant CSV exports and real-time spending controls?").
-   - Competitor Face-Off: Direct side-by-side comparison requests matching the brand against retrieved competitors (e.g., "Compare [Brand] vs [Competitor1] on ease-of-use, customer support, and API coverage").
-   - Regional/Market: Regionally-specific recommendation queries relevant to the brand's headquarter country or primary customer markets.
-4. Call finish with structured findings.
-
-WRITE TIGHT. No filler, no hedging, no marketing speak. Every output is scannable in 2 seconds.
-
-Rules for finish():
-- summary: ONE sentence, max 18 words. State the visibility % and the single biggest pattern.
-- key_findings: exactly 3-4 bullets. Each MAX 14 WORDS and MUST start with a number or %. Cover: strongest query type, weakest query type, biggest model gap.
-- recommendations: 2-3 actions. Each MAX 16 WORDS. Name the channel (G2, Wikipedia, Reddit, Gartner) and the expected effect.
-
-AI visibility levers (ground recommendations in these):
-- G2/Capterra reviews — heavily indexed by AI training crawlers.
-- Wikipedia — the fact-check layer; gaps = invisibility in factual queries.
-- "Brand vs Competitor" pages — over-scraped by training crawlers.
-- Press (TechCrunch, Forbes, Gartner) — high-authority training signal.
-- Reddit/Quora — community forums are over-represented in training data.
-- Brand name consistency — name variations split the signal across entities.
-
-GOOD finding: "0% on feature queries like 'best onboarding software' — category gap"
-GOOD recommendation: "Publish 30+ G2 reviews naming key features — moves feature-query visibility"
-BAD (too long): "The brand achieves strong visibility on direct queries but shows concerning gaps when..."
-"""
-
-TOOLS = [
-    {
-        "toolSpec": {
-            "name": "get_brand_context",
-            "description": "Fetch brand name, domain, and competitors from the database.",
-            "inputSchema": {"json": {
-                "type": "object",
-                "properties": {"brand_id": {"type": "integer"}},
-                "required": ["brand_id"],
-            }},
-        }
-    },
-    {
-        "toolSpec": {
-            "name": "run_probe",
-            "description": "Run one probe question across every AI model. Returns per-model mention results.",
-            "inputSchema": {"json": {
-                "type": "object",
-                "properties": {
-                    "prompt_text": {"type": "string"},
-                    "target_brand_name": {"type": "string"},
-                },
-                "required": ["prompt_text", "target_brand_name"],
-            }},
-        }
-    },
-    {
-        "toolSpec": {
-            "name": "finish",
-            "description": "Save the structured audit findings and end the session.",
-            "inputSchema": {"json": {
-                "type": "object",
-                "properties": {
-                    "summary": {"type": "string", "description": "One sentence with overall visibility % and key pattern"},
-                    "key_findings": {"type": "array", "items": {"type": "string"}, "description": "3-5 specific findings each starting with a metric"},
-                    "recommendations": {"type": "array", "items": {"type": "string"}, "description": "2-3 specific actions a marketing team can take"},
-                    "probe_count": {"type": "integer"},
-                    "visibility_pct": {"type": "number"},
-                },
-                "required": ["summary", "key_findings", "recommendations", "probe_count", "visibility_pct"],
-            }},
-        }
-    },
-]
 
 
 def _bedrock_client():
@@ -256,17 +218,20 @@ def _bedrock_client():
     return boto3.client("bedrock-runtime", **kwargs)
 
 
-def _call_claude_sync(client, messages: list) -> dict:
-    return client.converse(
-        modelId=ORCHESTRATOR_MODEL,
-        system=[{"text": SYSTEM_PROMPT}],
-        messages=messages,
-        toolConfig={"tools": TOOLS},
-        inferenceConfig={"maxTokens": 4096, "temperature": 0.3},
-    )
+def _brand_matches(target: str, extracted: str) -> bool:
+    """Whole-word match of the target brand against an extracted brand name, so e.g.
+    "Lever" matches "Lever" / "Lever ATS" but NOT "Cleverbit" or "leverage" (a naive
+    substring check would false-positive on those)."""
+    t, e = target.strip().lower(), extracted.strip().lower()
+    if not t:
+        return False
+    if t == e:
+        return True
+    # target appears as a complete word/token within the extracted name
+    return re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", e) is not None
 
 
-async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str) -> dict:
+async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str, on_event=None) -> dict:
     """Run one model. Returns a dict with `failed` flag so failed calls are excluded from the
     score instead of being counted as a real non-mention (which would corrupt visibility %).
     Uses the structured extractor — not a naive string match — to prevent hallucination false positives."""
@@ -274,7 +239,9 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
     try:
         result = await client.complete(model=model, messages=[{"role": "user", "content": prompt_text}])
         extraction = await extract_mentions(client, model, result["text"])
-        mentioned = any(target_brand.lower() in m.brand_name.lower() for m in extraction.mentions)
+        mentioned = any(_brand_matches(target_brand, m.brand_name) for m in extraction.mentions)
+        if on_event:
+            on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
         return {
             "model": model, "provider": provider, "mentioned": mentioned, "failed": False,
             "tokens_in": result.get("tokens_in", 0), "tokens_out": result.get("tokens_out", 0),
@@ -289,13 +256,13 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             await client.close()
 
 
-async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str, target_brand: str) -> dict:
+async def _run_probe_tool(session: AsyncSession, brand_id: int, prompt_text: str, target_brand: str, on_event=None) -> dict:
     """Run one probe across all models. Updates ProbePerformance. Returns summary dict."""
     semaphore = asyncio.Semaphore(10)
 
     async def bounded(p, m):
         async with semaphore:
-            return await _probe_one_model(p, m, prompt_text, target_brand)
+            return await _probe_one_model(p, m, prompt_text, target_brand, on_event=on_event)
 
     results = await asyncio.gather(*[bounded(p, m) for m, p in MODEL_CONFIGS])
 
@@ -353,105 +320,235 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
         "industry": brand.industry or "unknown",
         "competitors": brand.competitors or [],
     }
-    # Enrich with live web data so probes reference real features/positioning
-    web_summary = await _web_search_brand(brand.name, brand.domain, brand.industry)
+    # Enrich with live web data so probes reference real features/positioning.
+    # `source` tells the caller whether this is the brand's own homepage (trusted)
+    # or a name-based search (may be a different same-named entity — needs verifying).
+    web_summary, source = await _web_search_brand(brand.name, brand.domain, brand.industry)
     if web_summary:
         context["web_context"] = web_summary
+    context["_source"] = source
     return context
 
 
-async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None) -> Insight | None:
-    """Run the Hermes orchestration loop for a brand. Returns saved Insight or None on dry_run."""
+QUESTION_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when researching what to buy in a category. Given a brand's context, output 8-10 such questions.
+
+You will receive the brand's name, industry, competitors, and web_context (live search results). UNDERSTAND the brand first: what category it competes in, what it sells, who buys it, its price tier, its real competitors. Then write questions that flow from that understanding.
+
+REALITY RULES — every question must make factual sense for THIS brand:
+- Never invent prices, specs, or numbers. Only use figures from web_context.
+- Match the brand's real category and tier (a premium EV is not "under $10,000").
+- Write how a real person actually types to an AI: natural, with real context and scenario ("a 20-person startup that needs docs and project tracking"), not terse keyword queries.
+- Keep each question to ONE sentence, under 25 words. Plain punctuation only: use commas and periods, never em-dashes or en-dashes.
+- Use only real competitor names (from context/web_context).
+
+MOST questions (at least 7 of 10) must be CATEGORY questions that do NOT name this
+brand — they describe a need and ask what to use ("best AI meeting notetaker for a
+remote team of 10", "which expense tool works for a 50-person B2B SaaS startup").
+These test whether the brand surfaces on its own, which is the real measure.
+The remaining 2-3 may name the brand directly (pricing, integrations, compliance,
+or a head-to-head vs a named competitor). Do not exceed 3 that name the brand.
+
+Return ONLY a JSON object: {"questions": ["...", "..."]}. No prose, no markdown fences."""
+
+
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> list[str]:
+    """Phase A: one call to the stronger QUESTION_MODEL to write all probe questions,
+    grounded in the brand's real web context. Custom questions (if any) run first."""
+    user = f"Brand context:\n{json.dumps(context, indent=2)}\n\nWrite 8-10 buyer questions as JSON."
+    resp = await asyncio.to_thread(
+        lambda: bedrock.converse(
+            modelId=QUESTION_MODEL,
+            system=[{"text": QUESTION_GEN_PROMPT}],
+            messages=[{"role": "user", "content": [{"text": user}]}],
+            # Conversational questions are long; generous budget so the JSON array
+            # isn't truncated mid-element (which forces the salvage path below).
+            inferenceConfig={"maxTokens": 2600, "temperature": 0.7},
+        )
+    )
+    raw = resp["output"]["message"]["content"][0]["text"].strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].removeprefix("json").strip()
+    try:
+        generated = json.loads(raw).get("questions", [])
+    except (json.JSONDecodeError, KeyError, IndexError):
+        # Salvage a truncated array: keep up to the last COMPLETE element (a closing
+        # quote followed by a comma), then close the JSON and let json.loads decode it
+        # PROPERLY — handles \uXXXX and UTF-8 right, where a manual unicode_escape would
+        # mangle em-dashes into mojibake (the bug this replaces).
+        generated = []
+        cut = raw.rfind('",')           # end of the last fully-written element
+        if cut > 0:
+            repaired = raw[:cut + 1] + "]}"   # raw[:cut+1] ends at the closing quote
+            try:
+                generated = json.loads(repaired).get("questions", [])
+            except (json.JSONDecodeError, KeyError):
+                generated = []
+        log.warning("question_gen_salvaged", recovered=len(generated), raw=raw[:120])
+    custom = [q.strip() for q in (custom_questions or []) if q.strip()]
+    # Custom questions first, then generated; cap to keep audits bounded.
+    return (custom + [q for q in generated if isinstance(q, str) and q.strip()])[:12]
+
+
+ANALYSIS_PROMPT = """You are an AI brand visibility analyst. You receive a brand name and per-probe results (each question, and which AI models mentioned the brand). Report what was measured. You do NOT give marketing advice.
+
+Return ONLY JSON: {"summary": "...", "key_findings": ["...", "..."]}.
+- summary: ONE sentence, max 18 words, stating the overall visibility % and the single biggest pattern.
+- key_findings: 3-4 factual observations, each starting with a number or %, max 14 words. Cover strongest query type, weakest query type, biggest model gap. NO advice — describe what was measured, never what to do.
+No prose, no markdown fences."""
+
+
+async def _generate_analysis(bedrock, brand_name: str, visibility_pct: float, probe_results: list[dict]) -> dict:
+    """Phase B analysis: one fast Haiku call to write the summary + factual findings."""
+    payload = {"brand": brand_name, "overall_visibility_pct": visibility_pct, "probes": probe_results}
+    resp = await asyncio.to_thread(
+        lambda: bedrock.converse(
+            modelId=ORCHESTRATOR_MODEL,
+            system=[{"text": ANALYSIS_PROMPT}],
+            messages=[{"role": "user", "content": [{"text": json.dumps(payload)}]}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.3},
+        )
+    )
+    raw = resp["output"]["message"]["content"][0]["text"].strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].removeprefix("json").strip()
+    try:
+        d = json.loads(raw)
+        return {"summary": d.get("summary", ""), "key_findings": d.get("key_findings", [])}
+    except (json.JSONDecodeError, IndexError):
+        return {"summary": f"{brand_name} scored {visibility_pct}% AI visibility across probes.", "key_findings": []}
+
+
+async def _verify_entity(bedrock, name: str, industry: str | None, web_context: str) -> bool:
+    """Cheap check: does the web_context actually describe a company called `name`
+    (in `industry`, if given)? Guards against auditing a different same-named entity
+    when the data came from a name-based search rather than the brand's own domain.
+    Returns True if it's a confident match."""
+    prompt = (
+        f"A user wants to audit a company called \"{name}\""
+        + (f" in the \"{industry}\" industry." if industry and industry != "unknown" else ".")
+        + " Here is web search data that was retrieved:\n\n"
+        + web_context[:1500]
+        + "\n\nDoes this data clearly describe THAT specific company (not a different "
+        "company that happens to share the name, and not generic/unrelated results)? "
+        'Answer ONLY with JSON: {"match": true|false}.'
+    )
+    try:
+        resp = await asyncio.to_thread(
+            lambda: bedrock.converse(
+                modelId=ORCHESTRATOR_MODEL,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 50, "temperature": 0},
+            )
+        )
+        raw = resp["output"]["message"]["content"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].removeprefix("json").strip()
+        return bool(json.loads(raw).get("match", False))
+    except Exception as e:
+        log.warning("entity_verify_failed", brand=name, error=str(e))
+        return False  # fail closed: if we can't verify, treat as unconfirmed
+
+
+class BrandNotConfirmed(Exception):
+    """Raised when we cannot confidently identify which company the user means."""
+
+
+async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, on_event=None) -> Insight | None:
+    """Two-phase audit: (A) a stronger model writes buyer questions grounded in live
+    web context, (B) probes run in parallel across the model panel and a fast model
+    writes the factual summary. Returns the saved Insight, or None on dry_run."""
+    def emit(msg: str):
+        if on_event:
+            try:
+                on_event(msg)
+            except Exception:
+                pass
+
     bedrock = _bedrock_client()
-    custom_block = ""
-    if custom_questions:
-        formatted = "\n".join(f"- {q}" for q in custom_questions if q.strip())
-        custom_block = f"\n\nThe user also wants these specific questions tested (run them FIRST before generating your own):\n{formatted}"
-    messages = [{"role": "user", "content": [{"text": f"Audit brand_id={brand_id}. Start with get_brand_context.{custom_block}"}]}]
-    tool_calls_log = []
-    probe_count = 0
+    brand = await session.get(Brand, brand_id)
+    target_brand = brand.name if brand else ""
     model_hits: dict[str, list[bool]] = {}  # {model: [mentioned_per_probe]}
 
     log.info("orchestrate_start", brand_id=brand_id, dry_run=dry_run)
+    emit("Starting audit…")
 
-    for step in range(MAX_STEPS):
-        response = await asyncio.to_thread(_call_claude_sync, bedrock, messages)
-        msg = response["output"]["message"]
-        messages.append(msg)
+    # --- Phase A: understand the brand, then write the questions (stronger model) ---
+    emit("Searching the web for brand context…")
+    context = await _get_brand_context_tool(session, brand_id)
+    source = context.pop("_source", "none")
 
-        tool_results = []
-        finished = False
-        insight_data = {}
+    # Entity-resolution gate. The brand's own homepage is authoritative. But a
+    # name-based search can return a DIFFERENT company with the same name (e.g. an
+    # obscure 20-person startup vs a bigger namesake) — auditing that is worse than
+    # no answer. So when we only have search data (no trusted domain), verify the
+    # match; if it fails, stop and ask the user for a domain rather than fake a score.
+    if source != "homepage":
+        web_ctx = context.get("web_context", "")
+        if not web_ctx:
+            log.warning("brand_unconfirmed_no_data", brand_id=brand_id, name=target_brand)
+            raise BrandNotConfirmed(target_brand)
+        emit("Confirming brand identity…")
+        if not await _verify_entity(bedrock, target_brand, context.get("industry"), web_ctx):
+            log.warning("brand_unconfirmed_mismatch", brand_id=brand_id, name=target_brand)
+            raise BrandNotConfirmed(target_brand)
 
-        for block in msg["content"]:
-            if "toolUse" not in block:
-                continue
+    emit("Gathered brand context. Generating questions…")
+    questions = await _generate_questions(bedrock, context, custom_questions)
+    if not questions:
+        log.error("no_questions_generated", brand_id=brand_id)
+        return None
 
-            tool_name = block["toolUse"]["name"]
-            tool_input = block["toolUse"]["input"]
-            tool_use_id = block["toolUse"]["toolUseId"]
-            tool_calls_log.append({"tool": tool_name, "input": tool_input})
+    if dry_run:
+        for q in questions:
+            log.info("dry_run_probe", prompt=q)
+        log.info("dry_run_complete", count=len(questions))
+        return None
 
-            if tool_name == "get_brand_context":
-                result = await _get_brand_context_tool(session, tool_input["brand_id"])
+    # --- Phase B: run every question across the model panel (parallel), collect results ---
+    # CRITICAL: only "category" questions (which do NOT name the brand) count toward the
+    # visibility score — that measures whether the brand surfaces ORGANICALLY when a buyer
+    # asks about the category. "Brand-direct" questions (which name the brand) are run for
+    # the detail view but excluded from scoring, since a model trivially echoes a name we
+    # handed it (that would inflate every brand toward 100% and measure nothing real).
+    probe_results = []
+    for i, q in enumerate(questions, 1):
+        is_brand_direct = _brand_matches(target_brand, q)
+        emit(f"Asking {len(MODEL_CONFIGS)} models: \"{q[:60]}…\"")
+        result = await _run_probe_tool(session, brand_id, q, target_brand, on_event=emit)
+        if not is_brand_direct:
+            for model, mentioned in result.get("breakdown", {}).items():
+                model_hits.setdefault(model, []).append(mentioned == "yes")
+        probe_results.append({
+            "question": q, "visibility_pct": result["visibility_pct"],
+            "models": result.get("breakdown", {}), "scored": not is_brand_direct,
+        })
+        emit(f"Probe {i}: {result['visibility_pct']}% visible")
+        log.info("probe_done", probe_count=i, visibility_pct=result["visibility_pct"], scored=not is_brand_direct)
 
-            elif tool_name == "run_probe":
-                if dry_run:
-                    result = {"dry_run": True, "prompt": tool_input["prompt_text"]}
-                    log.info("dry_run_probe", prompt=tool_input["prompt_text"])
-                else:
-                    result = await _run_probe_tool(session, brand_id, tool_input["prompt_text"], tool_input["target_brand_name"])
-                    probe_count += 1
-                    for model, mentioned in result.get("breakdown", {}).items():
-                        model_hits.setdefault(model, []).append(mentioned == "yes")
-                    log.info("probe_done", probe_count=probe_count, visibility_pct=result["visibility_pct"])
+    # Visibility = organic mentions on category questions only. If the model generated
+    # all brand-direct questions (no category ones), fall back to all so we never divide
+    # by zero / show a meaningless 0%.
+    if not model_hits:
+        for r in probe_results:
+            for model, mentioned in r["models"].items():
+                model_hits.setdefault(model, []).append(mentioned == "yes")
+    visibility_pct = compute_visibility(model_hits)
+    model_breakdown = {m: round(sum(h) / len(h) * 100, 1) for m, h in model_hits.items() if h}
+    emit(f"Scoring visibility… {visibility_pct}%")
 
-            elif tool_name == "finish":
-                insight_data = tool_input
-                finished = True
-                result = {"status": "saved"}
+    analysis = await _generate_analysis(bedrock, target_brand, visibility_pct, probe_results)
 
-            else:
-                result = {"error": f"unknown tool: {tool_name}"}
-
-            tool_results.append({
-                "toolResult": {"toolUseId": tool_use_id, "content": [{"text": json.dumps(result)}]}
-            })
-
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-
-        if finished:
-            if dry_run:
-                log.info("dry_run_complete", steps=step + 1)
-                return None
-
-            model_breakdown = {
-                m: round(sum(hits) / len(hits) * 100, 1)
-                for m, hits in model_hits.items() if hits
-            }
-            # Compute visibility from actual probe results, NOT from Haiku's self-reported
-            # number — the model can miscalculate. Overall visibility = total hits across
-            # every (probe × model) result divided by total results.
-            visibility_pct = compute_visibility(model_hits)
-            insight = Insight(
-                brand_id=brand_id,
-                summary=insight_data["summary"],
-                key_findings=insight_data.get("key_findings", []),
-                recommendations=insight_data.get("recommendations", []),
-                probe_count=probe_count,
-                visibility_pct=visibility_pct,
-                model_breakdown=model_breakdown,
-                raw_tool_calls=tool_calls_log,
-            )
-            session.add(insight)
-            await session.commit()
-            log.info("orchestrate_done", brand_id=brand_id, probe_count=probe_count,
-                     visibility_pct=visibility_pct)
-            return insight
-
-        if response["stopReason"] == "end_turn":
-            break
-
-    log.error("orchestrate_max_steps", brand_id=brand_id, steps=MAX_STEPS)
-    return None
+    insight = Insight(
+        brand_id=brand_id,
+        summary=analysis["summary"],
+        key_findings=analysis.get("key_findings", []),
+        recommendations=[],  # Aura measures visibility; it does not advise. Column kept to avoid a migration.
+        probe_count=len(questions),
+        visibility_pct=visibility_pct,
+        model_breakdown=model_breakdown,
+        raw_tool_calls=[{"question": q} for q in questions],
+    )
+    session.add(insight)
+    await session.commit()
+    log.info("orchestrate_done", brand_id=brand_id, probe_count=len(questions), visibility_pct=visibility_pct)
+    return insight

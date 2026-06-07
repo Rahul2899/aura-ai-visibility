@@ -1,6 +1,6 @@
 // Shared brand-creation logic used by the homepage form and the compare page,
 // so validation and the create call behave identically everywhere.
-import { getSessionId } from "./session";
+import { getSessionId, getAdminKey } from "./session";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -26,14 +26,19 @@ export type CreateResult =
 
 export async function createBrand(input: NewBrand): Promise<CreateResult> {
   try {
+    const sess = getSessionId();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // In admin mode getSessionId() returns "admin"; the backend only accepts that
+    // session_id with a valid X-Admin-Key, so forward it (else admin create -> 422).
+    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
     const res = await fetch(`${API}/brands`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         name: input.name.trim(),
-        domain: input.domain?.trim() || null,
-        industry: input.industry || null,
-        session_id: getSessionId(),
+        domain: input.domain?.trim() || "",
+        industry: input.industry || "",
+        session_id: sess,
       }),
     });
     if (res.status === 429) {

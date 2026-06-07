@@ -13,6 +13,7 @@ type JobState = {
   visibility_pct?: number;
   summary?: string;
   error?: string;
+  events?: { t: number; msg: string }[];
 };
 
 export default function AuditButton({ brandId }: { brandId: number }) {
@@ -22,10 +23,21 @@ export default function AuditButton({ brandId }: { brandId: number }) {
   const [customText, setCustomText] = useState("");
   const started = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const customRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  // Dismiss the custom-questions popover when clicking outside it.
+  useEffect(() => {
+    if (!showCustom) return;
+    function onClick(e: MouseEvent) {
+      if (customRef.current && !customRef.current.contains(e.target as Node)) setShowCustom(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [showCustom]);
 
   // Persist the active job id per brand so an in-progress audit survives a page
   // refresh — on mount we resume polling instead of showing a dead/empty state.
@@ -40,7 +52,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
   }
 
   function pollJob(job_id: string) {
-    let lastProbeCount = 0;
+    let lastEventIdx = 0;
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
@@ -58,9 +70,13 @@ export default function AuditButton({ brandId }: { brandId: number }) {
         const j: JobState = await r.json();
         setJob(j);
 
-        if ((j.probe_count ?? 0) > lastProbeCount) {
-          lastProbeCount = j.probe_count ?? 0;
-          setLog(prev => [...prev, `Probe query ${lastProbeCount} completed successfully`]);
+        // Append only events we haven't shown yet — index cursor means nothing is
+        // lost between the 3s polls (the backend accumulates the full ordered list).
+        const evs = j.events ?? [];
+        if (evs.length > lastEventIdx) {
+          const fresh = evs.slice(lastEventIdx).map(e => e.msg);
+          setLog(prev => [...prev, ...fresh]);
+          lastEventIdx = evs.length;
         }
 
         if (j.status === "completed") {
@@ -68,6 +84,12 @@ export default function AuditButton({ brandId }: { brandId: number }) {
           localStorage.removeItem(jobKey);
           setLog(prev => [...prev, `✓ Audit finalized: ${j.visibility_pct?.toFixed(1)}% brand visibility`]);
           setTimeout(() => reloadPage(), 1200);
+        } else if (j.status === "unconfirmed") {
+          // Couldn't confidently identify which company the user means.
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(jobKey);
+          started.current = false;
+          setLog(prev => [...prev, "✗ Couldn't confirm this brand. Add your website domain so we audit the right company."]);
         } else if (j.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
           localStorage.removeItem(jobKey);
@@ -94,7 +116,11 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       headers["X-Admin-Key"] = getAdminKey();
     }
 
-    const custom_questions = parseCustomQuestions();
+    // Custom questions entered on the homepage form are handed off via sessionStorage;
+    // they take precedence over the brand-page popover (used for manual re-runs).
+    const stashed = JSON.parse(sessionStorage.getItem(`aura_cq_${brandId}`) || "[]");
+    sessionStorage.removeItem(`aura_cq_${brandId}`);
+    const custom_questions = stashed.length ? stashed : parseCustomQuestions();
     const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, {
       method: "POST",
       headers,
@@ -114,7 +140,6 @@ export default function AuditButton({ brandId }: { brandId: number }) {
 
     const { job_id } = await res.json();
     localStorage.setItem(jobKey, job_id);
-    setLog(prev => [...prev, `Generating category-specific probe questions…`]);
     pollJob(job_id);
   }
 
@@ -140,26 +165,33 @@ export default function AuditButton({ brandId }: { brandId: number }) {
   const running = job?.status === "running" || job?.status === "queued";
   const done = job?.status === "completed";
   const failed = job?.status === "failed";
+  const unconfirmed = job?.status === "unconfirmed";
 
   const customQuestions = parseCustomQuestions();
 
   return (
     <div className="flex flex-col items-end gap-2 relative">
-      {/* Custom questions panel */}
+      {/* Custom questions — anchored popover so it overlays instead of shifting layout */}
       {!running && !done && (
-        <div className="flex flex-col items-end gap-2">
+        <div ref={customRef} className="relative">
           <button
             onClick={() => setShowCustom(v => !v)}
-            className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold flex items-center gap-1 transition-colors"
+            className="text-[11px] text-slate-500 hover:text-slate-800 font-semibold flex items-center gap-1 transition-colors"
           >
             <Plus className="w-3 h-3" />
-            Custom questions
+            Test your own questions
+            {customQuestions.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-px rounded-full bg-[var(--accent-dim)] text-[var(--accent)] text-[10px] font-bold tabular">
+                {customQuestions.length}
+              </span>
+            )}
             <ChevronDown className={`w-3 h-3 transition-transform ${showCustom ? "rotate-180" : ""}`} />
           </button>
           {showCustom && (
-            <div className="w-72 rounded-xl border border-slate-200 bg-white shadow-lg p-3 space-y-2">
-              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-                Add up to 5 questions to test (one per line)
+            <div className="absolute right-0 top-full mt-2 z-20 w-72 rounded-xl border border-slate-200 bg-white shadow-lg p-3 space-y-2">
+              <p className="text-xs text-slate-700 font-bold">Test your own questions</p>
+              <p className="text-[11px] text-slate-400 font-medium leading-snug">
+                Add specific buyer questions you want checked. Up to 5, one per line. These run first, before the auto-generated ones.
               </p>
               <textarea
                 value={customText}
@@ -218,10 +250,16 @@ export default function AuditButton({ brandId }: { brandId: number }) {
         </div>
       )}
 
-      {/* High-fidelity Live Log Console */}
+      {/* High-fidelity Live Log Console — while running it anchors as a prominent
+          fixed panel (top-center on desktop) so the "live search" is the star of the
+          show, not a cramped corner widget. Falls back to inline once complete. */}
       {log.length > 0 && (
         <div
-          className="w-80 rounded-xl p-4 text-left border shadow-2xl transition-all duration-300"
+          className={`rounded-xl p-4 text-left border shadow-2xl transition-all duration-300 ${
+            running
+              ? "fixed left-1/2 -translate-x-1/2 top-20 z-40 w-[min(92vw,640px)]"
+              : "w-80"
+          }`}
           style={{ background: "var(--surface)", borderColor: "var(--border)" }}
           role="log"
           aria-live="polite"
@@ -235,11 +273,12 @@ export default function AuditButton({ brandId }: { brandId: number }) {
               {running && <span className="live-dot" />}
               {done && <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Complete</span>}
               {failed && <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Failed</span>}
+              {unconfirmed && <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brand unconfirmed</span>}
               {running && <span className="text-[10px] text-zinc-500 font-bold tabular">{job?.probe_count ?? 0}/10 queries</span>}
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+          <div className={`flex flex-col gap-1.5 overflow-y-auto pr-1 ${running ? "max-h-64" : "max-h-36"}`}>
             {log.map((line, i) => {
               const isDone = line.startsWith("✓");
               const isFail = line.startsWith("✗");

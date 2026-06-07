@@ -5,7 +5,9 @@ import structlog
 from contextlib import asynccontextmanager, nullcontext
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text, select, func
+from sqlalchemy.exc import SQLAlchemyError
 from src.db import engine, Base, SessionLocal
 from src.db_seed import seed_example_brands
 from src.api.semaphore import init_audit_semaphore, get_audit_semaphore
@@ -167,3 +169,20 @@ app.add_middleware(
 
 app.include_router(brands_router)
 app.include_router(audits_router)
+
+
+# Turn malformed input that reaches the DB (null bytes, out-of-range integers, bad
+# encodings) into a clean 400 instead of a 500 + leaked stack trace. These come from
+# hostile/garbage path params; they're client errors, not server faults.
+@app.exception_handler(SQLAlchemyError)
+async def _db_exception_handler(request, exc):
+    log.warning("db_error", path=str(request.url.path), error=str(exc)[:200])
+    return JSONResponse(status_code=400, content={"detail": "Invalid request."})
+
+
+# Catch-all: never leak an internal stack trace to the client. Log it server-side,
+# return a generic 500. (FastAPI's default would expose the traceback in debug.)
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request, exc):
+    log.error("unhandled_error", path=str(request.url.path), error=str(exc)[:300])
+    return JSONResponse(status_code=500, content={"detail": "Something went wrong."})

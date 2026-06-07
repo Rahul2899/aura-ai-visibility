@@ -24,9 +24,9 @@ describe("Session Utilities (Browser Environment)", () => {
       expect(getSessionId()).toBe("my-test-session-id");
     });
 
-    it("returns admin when admin mode is enabled and key is in sessionStorage", () => {
+    it("returns admin when admin mode is enabled and key is present", () => {
       localStorage.setItem("aura_admin_mode", "true");
-      sessionStorage.setItem("aura_admin_key", "secret-admin-token");
+      localStorage.setItem("aura_admin_key", "secret-admin-token");
       expect(getSessionId()).toBe("admin");
     });
 
@@ -39,38 +39,38 @@ describe("Session Utilities (Browser Environment)", () => {
   });
 
   describe("isAdminMode", () => {
-    it("returns true when mode enabled and key in sessionStorage", () => {
+    it("returns true when mode enabled and key present", () => {
       localStorage.setItem("aura_admin_mode", "true");
-      sessionStorage.setItem("aura_admin_key", "secret-key");
+      localStorage.setItem("aura_admin_key", "secret-key");
       expect(isAdminMode()).toBe(true);
     });
 
     it("returns false when mode false or key missing", () => {
       localStorage.setItem("aura_admin_mode", "false");
-      sessionStorage.setItem("aura_admin_key", "secret-key");
+      localStorage.setItem("aura_admin_key", "secret-key");
       expect(isAdminMode()).toBe(false);
 
       localStorage.setItem("aura_admin_mode", "true");
-      sessionStorage.removeItem("aura_admin_key");
+      localStorage.removeItem("aura_admin_key");
       expect(isAdminMode()).toBe(false);
     });
   });
 
   describe("setAdminMode", () => {
     it("saves admin mode and clears key when disabled", () => {
-      sessionStorage.setItem("aura_admin_key", "x");
+      localStorage.setItem("aura_admin_key", "x");
       setAdminMode(true);
       expect(localStorage.getItem("aura_admin_mode")).toBe("true");
       setAdminMode(false);
       expect(localStorage.getItem("aura_admin_mode")).toBe("false");
-      expect(sessionStorage.getItem("aura_admin_key")).toBeNull();
+      expect(localStorage.getItem("aura_admin_key")).toBeNull();
     });
   });
 
   describe("getAdminKey and setAdminKey", () => {
-    it("stores and retrieves admin key from sessionStorage", () => {
+    it("stores and retrieves admin key from localStorage (persists across reloads)", () => {
       setAdminKey("admin-password-value");
-      expect(sessionStorage.getItem("aura_admin_key")).toBe("admin-password-value");
+      expect(localStorage.getItem("aura_admin_key")).toBe("admin-password-value");
       expect(getAdminKey()).toBe("admin-password-value");
     });
 

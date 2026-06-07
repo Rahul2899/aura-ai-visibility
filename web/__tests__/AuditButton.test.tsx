@@ -28,8 +28,17 @@ describe("AuditButton Component", () => {
   it("handles the full audit lifecycle (start, polling, completed, reload)", async () => {
     // Mock the start and status endpoints
     const mockStartResponse = { job_id: "job_123", status: "queued" };
-    const mockStatusRunningResponse = { status: "running", probe_count: 3 };
-    const mockStatusCompletedResponse = { status: "completed", probe_count: 10, visibility_pct: 65.5 };
+    // The live feed is now driven by real backend events streamed in the job's
+    // `events` array (index-synced by the poller), not inferred client-side strings.
+    const mockStatusRunningResponse = {
+      status: "running",
+      probe_count: 3,
+      events: [
+        { t: 1, msg: "Searching the web for brand context…" },
+        { t: 2, msg: "Asking 4 models: \"best note app?…\"" },
+      ],
+    };
+    const mockStatusCompletedResponse = { status: "completed", probe_count: 10, visibility_pct: 65.5, events: [] };
 
     const fetchMock = jest.fn();
     global.fetch = fetchMock;
@@ -71,7 +80,7 @@ describe("AuditButton Component", () => {
       jest.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByText(/Generating category-specific probe questions…/)).toBeInTheDocument();
+    expect(screen.getByText(/Searching the web for brand context…/)).toBeInTheDocument();
     expect(screen.getByText("3/10 queries")).toBeInTheDocument();
 
     // 3. Mock Third call: Poll status (GET - completed)

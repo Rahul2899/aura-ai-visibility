@@ -281,11 +281,11 @@ def test_probe_detail_structure(client):
     assert "audit_date" in data
     for p in data["probes"]:
         assert "question" in p
-        assert "hit_rate" in p
-        assert "mentioned" in p
-        assert "total_models" in p
+        # probe-detail reports per-question found-vs-not (the per-model breakdown lives
+        # in model-bias); the old hit_rate/mentioned/total_models fields were misleading.
+        assert "found" in p
+        assert isinstance(p["found"], bool)
         assert "result" in p
-        assert 0 <= p["hit_rate"] <= 100
         assert p["result"] in ("strong", "weak")
 
 

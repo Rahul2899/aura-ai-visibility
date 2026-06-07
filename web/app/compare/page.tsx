@@ -23,12 +23,13 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type BrandOption = { id: number; name: string; visibility_pct: number | null };
+type BrandOption = { id: number; name: string; visibility_pct: number | null; industry?: string | null };
 type ModelBias = { model: string; visibility_pct: number };
 type BrandData = {
   id: number;
   name: string;
-  insight: { visibility_pct: number; key_findings: string[]; recommendations: string[]; summary: string } | null;
+  industry?: string | null;
+  insight: { visibility_pct: number; key_findings: string[]; summary: string } | null;
   models: ModelBias[];
 };
 type JobState = { status: string; visibility_pct?: number; probe_count?: number; error?: string };
@@ -57,15 +58,9 @@ export default function ComparePage() {
     fetch(`${API}/brands/compare?session_id=${sess}`)
       .then(r => r.json())
       .then(brands => {
-        setAllBrands(brands);
-        // Auto-select first 2 audited brands so compare page isn't blank
-        if (Array.isArray(brands)) {
-          const audited = brands.filter(b => b.visibility_pct !== null);
-          const preselected = audited.slice(0, 2).map(b => b.id);
-          if (preselected.length > 0) {
-            setSelected(preselected);
-          }
-        }
+        // Open empty: let the user choose which brands to compare rather than
+        // guessing. Avoids confusing new users with a pre-filled comparison.
+        if (Array.isArray(brands)) setAllBrands(brands);
       })
       .catch(() => []);
   }, []);
@@ -102,6 +97,7 @@ export default function ComparePage() {
         return {
           id,
           name: brand?.name ?? `Brand ${id}`,
+          industry: brand?.industry ?? null,
           insight: insights[0] ?? null,
           models: bias.models ?? [],
         };
@@ -219,6 +215,13 @@ export default function ComparePage() {
 
   const scoreColor = (pct: number) => pct >= 60 ? "var(--green)" : pct >= 35 ? "var(--amber)" : "var(--red)";
 
+  // Cross-category check: visibility isn't directly comparable across different
+  // industries (an EV brand vs an HR suite). We warn but still allow the comparison.
+  const selectedIndustries = Array.from(new Set(
+    selected.map(id => allBrands.find(b => b.id === id)?.industry?.split("/")[0].trim()).filter(Boolean)
+  ));
+  const crossCategory = selectedIndustries.length > 1;
+
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
       {/* Header */}
@@ -252,7 +255,7 @@ export default function ComparePage() {
                 <button
                   key={b.id}
                   onClick={() => toggle(b.id)}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer hover:border-slate-300 active:scale-95"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all border cursor-pointer hover:border-slate-300 active:scale-95 text-left"
                   style={{
                     background: isSelected ? "var(--accent-dim)" : "var(--surface-2-solid)",
                     borderColor: isSelected ? "var(--accent)" : "var(--border)",
@@ -260,8 +263,11 @@ export default function ComparePage() {
                   }}
                   aria-pressed={isSelected}
                 >
-                  {b.name}
-                  {b.visibility_pct !== null && <span className="ml-2 font-extrabold opacity-70 tabular">{b.visibility_pct?.toFixed(0)}%</span>}
+                  <span className="flex items-center">
+                    {b.name}
+                    {b.visibility_pct !== null && <span className="ml-2 font-extrabold opacity-70 tabular">{b.visibility_pct?.toFixed(0)}%</span>}
+                  </span>
+                  {b.industry && <span className="block text-[9px] font-bold uppercase tracking-wide opacity-50 mt-0.5">{b.industry.split("/")[0].trim()}</span>}
                 </button>
               );
             })}
@@ -284,17 +290,17 @@ export default function ComparePage() {
 
           <div className="flex items-center flex-wrap gap-3 pt-2">
             <button onClick={runParallelAudits}
-              disabled={selected.length === 0 || running}
+              disabled={selected.length < 2 || running}
               className="btn-primary flex items-center gap-2 text-xs font-semibold">
               {running ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-slate-900" />
-                  <span>Running parallel audits…</span>
+                  <span>Running audits…</span>
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4 text-slate-900 fill-white" />
-                  <span>Run {selected.length} audits in parallel</span>
+                  <span>{selected.length >= 2 ? `Compare ${selected.length} brands` : "Compare brands"}</span>
                 </>
               )}
             </button>
@@ -316,6 +322,17 @@ export default function ComparePage() {
               </button>
             )}
           </div>
+
+          {/* Selection hint + cross-category warning */}
+          {selected.length < 2 && (
+            <p className="text-xs font-semibold text-slate-400">Select at least 2 brands to compare them side by side.</p>
+          )}
+          {crossCategory && selected.length >= 2 && (
+            <div className="flex items-start gap-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>These brands span different categories ({selectedIndustries.join(", ")}). Visibility scores aren&apos;t directly comparable across industries.</span>
+            </div>
+          )}
 
           {/* Parallel Job progress */}
           {Object.entries(jobs).length > 0 && (
@@ -375,9 +392,10 @@ export default function ComparePage() {
             <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))` }}>
               {data.map(d => (
                 <div key={d.id} className="card p-5 text-center flex flex-col items-center justify-center">
-                  <p className="font-extrabold text-sm text-slate-700 mb-2">{d.name}</p>
+                  <p className="font-extrabold text-sm text-slate-700">{d.name}</p>
+                  {d.industry && <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-2">{d.industry.split("/")[0].trim()}</span>}
                   <p className="text-5xl font-extrabold tabular leading-none my-2" style={{ color: d.insight ? scoreColor(d.insight.visibility_pct ?? 0) : "var(--text-3)" }}>
-                    {d.insight ? `${d.insight.visibility_pct?.toFixed(0)}%` : "—"}
+                    {d.insight ? `${d.insight.visibility_pct?.toFixed(0)}%` : "No data"}
                   </p>
                   <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1">AI Visibility</p>
                   <Link href={`/brands/${d.id}`} className="text-xs text-[var(--accent)] hover:brightness-110 font-bold mt-4 inline-flex items-center gap-1.5">
@@ -391,7 +409,7 @@ export default function ComparePage() {
             {allModelIds.length > 0 && (
               <div className="card p-6 overflow-hidden">
                 <p className="text-slate-500 text-xs uppercase font-bold tracking-wider">Model Bias Matrix</p>
-                <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">Each brand&apos;s visibility in each AI model — spot which models favor which brand</p>
+                <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">Each brand&apos;s visibility in each AI model. Spot which models favor which brand.</p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -572,7 +590,7 @@ export default function ComparePage() {
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-2">Why do scores change between runs?</h3>
               <p className="text-slate-400 text-xs leading-relaxed font-semibold">
-                Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic — the same question can get a different answer each time. Early runs with model failures (rate limits, wrong IDs) score lower because failed models count as 0%. Later runs with all models working give accurate measurements.
+                Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic, so the same question can get a different answer each time. Early runs with model failures (rate limits, wrong IDs) score lower because failed models count as 0%. Later runs with all models working give accurate measurements.
               </p>
             </div>
             <div>

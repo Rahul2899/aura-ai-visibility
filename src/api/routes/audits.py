@@ -1,14 +1,19 @@
 import os
+import time
+import structlog
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.api.auth import is_admin, limit_key, require_owner_or_admin
 from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
-from src.agents.orchestrator import orchestrate
+from src.agents.orchestrator import orchestrate, BrandNotConfirmed
 from src.models import AuditLimit, Brand
+
+log = structlog.get_logger()
 
 
 class AuditRequest(BaseModel):
@@ -20,11 +25,33 @@ _jobs: dict = {}
 _job_counter = 0
 
 
-async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None):
-    _jobs[job_id]["status"] = "running"
+async def _refund_audit_slot(rate_key: str | None):
+    """Give back one audit-limit slot. Used when an audit produced no usable result
+    (brand couldn't be confirmed), so the user isn't charged for a non-answer."""
+    if not rate_key:
+        return
     try:
         async with SessionLocal() as session:
-            insight = await orchestrate(session, brand_id, custom_questions=custom_questions)
+            limit = await session.get(AuditLimit, rate_key)
+            if limit and limit.audit_count > 0:
+                limit.audit_count -= 1
+                await session.commit()
+    except Exception as e:
+        log.warning("audit_refund_failed", rate_key=rate_key, error=str(e))
+
+
+async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None):
+    _jobs[job_id]["status"] = "running"
+
+    def _emit(msg: str):
+        evs = _jobs[job_id]["events"]
+        evs.append({"t": time.time(), "msg": msg})
+        if len(evs) > 200:  # bound growth
+            del evs[: len(evs) - 200]
+
+    try:
+        async with SessionLocal() as session:
+            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, on_event=_emit)
         if insight:
             _jobs[job_id].update({
                 "status": "completed",
@@ -34,8 +61,15 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
             })
         else:
             _jobs[job_id]["status"] = "failed"
+            await _refund_audit_slot(rate_key)
+    except BrandNotConfirmed:
+        # Couldn't confidently identify which company the user means. Distinct status
+        # so the UI can ask for a domain; refund the slot since they got no result.
+        _jobs[job_id]["status"] = "unconfirmed"
+        await _refund_audit_slot(rate_key)
     except Exception as e:
         _jobs[job_id].update({"status": "failed", "error": str(e)})
+        await _refund_audit_slot(rate_key)
 
 
 @router.get("/limit-status")
@@ -59,6 +93,7 @@ async def start_audit(
     session_id: str = None,
     x_admin_key: str = Header(None),
 ):
+    rate_key = None  # set for non-admins; passed to the job so it can refund on no-result
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -68,19 +103,30 @@ async def start_audit(
         require_owner_or_admin(brand, session_id, x_admin_key)
 
         if not is_admin(session_id, x_admin_key):
-            key = limit_key(session_id, client_ip(request))
-            limit = await session.get(AuditLimit, key)
-            if limit and limit.audit_count >= 2:
+            key = rate_key = limit_key(session_id, client_ip(request))
+            # Atomic upsert + increment. Two audits firing at once for the same key
+            # (e.g. Compare's parallel runs) would otherwise both INSERT and crash on
+            # the primary-key constraint. ON CONFLICT increments in one statement and
+            # RETURNs the post-increment count, which we check to enforce the limit.
+            stmt = (
+                pg_insert(AuditLimit)
+                .values(rate_key=key, audit_count=1, last_audit_at=datetime.utcnow())
+                .on_conflict_do_update(
+                    index_elements=["rate_key"],
+                    set_={
+                        "audit_count": AuditLimit.audit_count + 1,
+                        "last_audit_at": datetime.utcnow(),
+                    },
+                )
+                .returning(AuditLimit.audit_count)
+            )
+            new_count = (await session.execute(stmt)).scalar_one()
+            await session.commit()
+            if new_count > 2:
                 raise HTTPException(
                     status_code=429,
                     detail="Audit limit exceeded. You can run up to 2 audits per session.",
                 )
-            if limit:
-                limit.audit_count += 1
-                limit.last_audit_at = datetime.utcnow()
-            else:
-                session.add(AuditLimit(rate_key=key, audit_count=1, last_audit_at=datetime.utcnow()))
-            await session.commit()
 
     sem = get_audit_semaphore()
     if sem is not None and sem.locked():
@@ -99,16 +145,16 @@ async def start_audit(
     global _job_counter
     _job_counter += 1
     job_id = f"job_{_job_counter}"
-    _jobs[job_id] = {"status": "queued", "brand_id": brand_id}
+    _jobs[job_id] = {"status": "queued", "brand_id": brand_id, "events": []}
 
-    async def _run_with_semaphore(jid: str, bid: int, cq: list[str]):
+    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None):
         async with sem:
-            await _run_audit_job(jid, bid, cq)
+            await _run_audit_job(jid, bid, cq, rate_key=rk)
 
     if sem is not None:
-        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions)
+        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key)
     else:
-        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions)
+        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key)
 
     return {"job_id": job_id, "status": "queued"}
 

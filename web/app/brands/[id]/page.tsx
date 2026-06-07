@@ -47,6 +47,26 @@ export default function BrandPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shareLabel, setShareLabel] = useState("Share");
+  // True while an audit is actively running for this brand — detected from the
+  // same localStorage job key AuditButton uses, so it works whether the audit was
+  // triggered via autostart or the "Run Audit" button. Drives the centered progress UI.
+  const [auditActive, setAuditActive] = useState(false);
+  useEffect(() => {
+    // Drive the centered progress panel off the live job key only. AuditButton
+    // removes that key on completion OR failure, so this clears correctly. We must
+    // NOT also key off `autostart` — that stays "1" for the page's lifetime and
+    // would leave the "Auditing…" spinner stuck forever after a failed audit.
+    // On a fresh autostart there's a brief gap before the key is written, so seed
+    // it true once when autostart is set; the key takes over on the next tick.
+    const check = () => setAuditActive(!!localStorage.getItem(`aura_audit_job_${id}`));
+    if (autostart === "1") {
+      setAuditActive(true);   // seed for the brief gap before AuditButton writes the key
+    } else {
+      check();
+    }
+    const iv = setInterval(check, 1500);
+    return () => clearInterval(iv);
+  }, [id, autostart]);
 
   async function shareReport() {
     try {
@@ -161,6 +181,15 @@ export default function BrandPage() {
             <ArrowLeft className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Dashboard</span>
           </Link>
           <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
+          <div className="relative w-6 h-6 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+            <span className="text-[9px] font-bold text-slate-600 uppercase">{brand.name.slice(0, 2)}</span>
+            {brand.domain && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`https://www.google.com/s2/favicons?domain=${brand.domain}&sz=64`} alt=""
+                className="absolute inset-0 w-full h-full object-contain bg-white"
+                onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+            )}
+          </div>
           <h1 className="font-bold text-base text-slate-900 tracking-tight truncate">{brand.name}</h1>
           {brand.industry && <span className="hidden md:inline text-slate-400 text-sm font-semibold flex-shrink-0">{brand.industry.split("/")[0].trim()}</span>}
         </div>
@@ -180,14 +209,14 @@ export default function BrandPage() {
       <div className="max-w-5xl mx-auto px-5 sm:px-6 py-8 space-y-6">
         {!latest ? (
           <div className="card p-16 text-center" style={{ borderStyle: "dashed" }}>
-            {autostart === "1" ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-center gap-2">
+            {auditActive ? (
+              <div className="space-y-5 max-w-xl mx-auto">
+                <div className="flex items-center justify-center gap-2.5">
                   <span className="live-dot" />
-                  <p className="text-slate-900 font-bold text-lg">Audit starting…</p>
+                  <p className="text-slate-900 font-bold text-xl">Auditing {brand.name}…</p>
                 </div>
-                <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto">
-                  Generating industry-specific probe questions and querying AI models. Live progress is in the top-right. This page refreshes when done (~1–2 min).
+                <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto leading-relaxed">
+                  Asking real buyer questions across 4 AI models and measuring how often {brand.name} gets recommended. Live progress is in the panel above. This page refreshes when done (about 1 to 2 minutes).
                 </p>
               </div>
             ) : (
@@ -198,7 +227,7 @@ export default function BrandPage() {
                 <div className="space-y-2">
                   <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
                   <p className="text-slate-500 text-sm font-semibold leading-relaxed">
-                    We&apos;ll ask ~10 buyer-style questions across multiple AI models and measure how often {brand.name} gets recommended — then show you exactly where to improve.
+                    We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show you exactly where to improve.
                   </p>
                 </div>
                 <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
@@ -229,39 +258,21 @@ export default function BrandPage() {
 
             {(() => {
               const findings = latest.key_findings?.length > 0 ? latest.key_findings : summaryToBullets(latest.summary);
-              const hasRecs = latest.recommendations?.length > 0;
-              return (findings.length > 0 || hasRecs) && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {findings.length > 0 && (
-                    <div className="card p-6">
-                      <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-4">Key Findings</p>
-                      <div className="space-y-4">
-                        {findings.map((f: string, i: number) => {
-                          const bad = /0%|drops|invisible|weak/i.test(f);
-                          return (
-                            <div key={i} className="flex items-start gap-2.5">
-                              {bad ? <ArrowDown className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500 bg-red-50 p-0.5 rounded" />
-                                     : <ArrowUp className="w-4 h-4 mt-0.5 flex-shrink-0 text-emerald-600 bg-emerald-50 p-0.5 rounded" />}
-                              <p className="text-sm text-slate-700 leading-relaxed font-semibold">{f}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {hasRecs && (
-                    <div className="card p-6" style={{ background: "var(--accent-dim)", borderColor: "var(--border-2)" }}>
-                      <p className="text-[10px] uppercase font-bold tracking-wider mb-4 text-[var(--accent)]">Action Plan</p>
-                      <div className="space-y-4">
-                        {latest.recommendations.map((r: string, i: number) => (
-                          <div key={i} className="flex items-start gap-2.5">
-                            <Sparkles className="w-4 h-4 mt-0.5 text-[var(--accent)] flex-shrink-0" />
-                            <p className="text-sm text-slate-700 leading-relaxed font-semibold">{r}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              return findings.length > 0 && (
+                <div className="card p-6">
+                  <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-4">Key Findings</p>
+                  <div className="space-y-4">
+                    {findings.map((f: string, i: number) => {
+                      const bad = /0%|drops|invisible|weak/i.test(f);
+                      return (
+                        <div key={i} className="flex items-start gap-2.5">
+                          {bad ? <ArrowDown className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500 bg-red-50 p-0.5 rounded" />
+                                 : <ArrowUp className="w-4 h-4 mt-0.5 flex-shrink-0 text-emerald-600 bg-emerald-50 p-0.5 rounded" />}
+                          <p className="text-sm text-slate-700 leading-relaxed font-semibold">{f}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })()}
@@ -323,7 +334,7 @@ export default function BrandPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <p className="text-slate-800 font-bold text-sm">Where you&apos;re invisible <span className="text-slate-400 font-medium">· Dark Matter</span></p>
-                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand — pure opportunity</p>
+                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand. Pure opportunity.</p>
                   </div>
                   <span className="text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
                     {darkMatter.dark_matter_count} of {darkMatter.total_probes} questions
