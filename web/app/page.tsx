@@ -336,10 +336,11 @@ export default function Home() {
                               {b.name}
                               <ChevronRight className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </p>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {b.domain && <p className="text-[11px] text-slate-400 font-medium">{b.domain}</p>}
-                              {b.industry && <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{b.industry.split("/")[0].trim()}</span>}
-                            </div>
+                            {b.industry && (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{b.industry.split("/")[0].trim()}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="col-span-2 text-right"><ScoreChip pct={b.visibility_pct} /></div>

@@ -143,7 +143,7 @@ export default function BrandPage() {
           </Link>
           <div className="w-px h-4 bg-slate-200" />
           <h1 className="font-bold text-base text-slate-900 tracking-tight">{brand.name}</h1>
-          {brand.domain && <span className="text-slate-400 text-sm font-semibold">{brand.domain}</span>}
+          {brand.industry && <span className="text-slate-400 text-sm font-semibold">{brand.industry.split("/")[0].trim()}</span>}
         </div>
         <AuditButton brandId={Number(id)} />
       </header>

@@ -60,16 +60,51 @@ async def _web_search_brand(name: str, domain: str | None, industry: str | None)
                 async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
                     r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
                 if r.status_code == 200:
-                    text = re.sub(r"<[^>]+>", " ", r.text)
-                    text = re.sub(r"\s+", " ", text).strip()[:1200]
-                    log.info("homepage_fetch_ok", brand=name, chars=len(text))
-                    return text
+                    summary = extract_page_signal(r.text)
+                    if summary:
+                        log.info("homepage_fetch_ok", brand=name, chars=len(summary))
+                        return summary
             except Exception as e:
                 log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
         else:
             log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
 
     return None
+
+
+def extract_page_signal(html: str) -> str:
+    """Pull the high-signal parts of a homepage — title, meta description, and the
+    first few headings — rather than raw tag-stripped text (which is mostly nav junk).
+    This gives the orchestrator real product positioning to write specific probes."""
+    def _first(pattern: str) -> str:
+        m = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+        return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+    title = _first(r"<title[^>]*>(.*?)</title>")
+    meta_desc = _first(r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']')
+    og_desc = _first(r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']')
+
+    headings = re.findall(r"<h[12][^>]*>(.*?)</h[12]>", html, re.IGNORECASE | re.DOTALL)
+    headings = [re.sub(r"<[^>]+>", " ", h) for h in headings]
+    headings = [re.sub(r"\s+", " ", h).strip() for h in headings]
+    headings = [h for h in headings if 3 < len(h) < 120][:6]
+
+    parts = []
+    if title:
+        parts.append(f"Title: {title}")
+    if meta_desc or og_desc:
+        parts.append(f"Description: {meta_desc or og_desc}")
+    if headings:
+        parts.append("Key messaging: " + " | ".join(headings))
+
+    summary = "\n".join(parts).strip()
+    if not summary:
+        # Last resort: tag-stripped body, but skip the first chunk (usually nav/header).
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        summary = text[:1000]
+    return summary[:1500]
 
 
 def _safe_https_url(domain: str) -> str | None:
