@@ -98,20 +98,6 @@ export default function SharedReportPage() {
               </div>
             )}
 
-            {ins.recommendations.length > 0 && (
-              <div className="card p-6" style={{ background: "var(--accent-dim)" }}>
-                <p className="text-[10px] uppercase font-bold tracking-wider mb-4 text-[var(--accent)]">Action Plan</p>
-                <div className="space-y-3">
-                  {ins.recommendations.map((r, i) => (
-                    <div key={i} className="flex items-start gap-2.5">
-                      <Sparkles className="w-4 h-4 mt-0.5 text-[var(--accent)] flex-shrink-0" />
-                      <p className="text-sm text-slate-700 font-semibold leading-relaxed">{r}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {Object.keys(ins.model_breakdown).length > 0 && (
               <div className="card p-6">
                 <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-4">Model Breakdown</p>

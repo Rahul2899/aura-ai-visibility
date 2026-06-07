@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.api.auth import is_admin, limit_key, require_owner_or_admin
 from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
@@ -77,18 +78,29 @@ async def start_audit(
 
         if not is_admin(session_id, x_admin_key):
             key = limit_key(session_id, client_ip(request))
-            limit = await session.get(AuditLimit, key)
-            if limit and limit.audit_count >= 2:
+            # Atomic upsert + increment. Two audits firing at once for the same key
+            # (e.g. Compare's parallel runs) would otherwise both INSERT and crash on
+            # the primary-key constraint. ON CONFLICT increments in one statement and
+            # RETURNs the post-increment count, which we check to enforce the limit.
+            stmt = (
+                pg_insert(AuditLimit)
+                .values(rate_key=key, audit_count=1, last_audit_at=datetime.utcnow())
+                .on_conflict_do_update(
+                    index_elements=["rate_key"],
+                    set_={
+                        "audit_count": AuditLimit.audit_count + 1,
+                        "last_audit_at": datetime.utcnow(),
+                    },
+                )
+                .returning(AuditLimit.audit_count)
+            )
+            new_count = (await session.execute(stmt)).scalar_one()
+            await session.commit()
+            if new_count > 2:
                 raise HTTPException(
                     status_code=429,
                     detail="Audit limit exceeded. You can run up to 2 audits per session.",
                 )
-            if limit:
-                limit.audit_count += 1
-                limit.last_audit_at = datetime.utcnow()
-            else:
-                session.add(AuditLimit(rate_key=key, audit_count=1, last_audit_at=datetime.utcnow()))
-            await session.commit()
 
     sem = get_audit_semaphore()
     if sem is not None and sem.locked():

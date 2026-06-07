@@ -239,39 +239,21 @@ export default function BrandPage() {
 
             {(() => {
               const findings = latest.key_findings?.length > 0 ? latest.key_findings : summaryToBullets(latest.summary);
-              const hasRecs = latest.recommendations?.length > 0;
-              return (findings.length > 0 || hasRecs) && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {findings.length > 0 && (
-                    <div className="card p-6">
-                      <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-4">Key Findings</p>
-                      <div className="space-y-4">
-                        {findings.map((f: string, i: number) => {
-                          const bad = /0%|drops|invisible|weak/i.test(f);
-                          return (
-                            <div key={i} className="flex items-start gap-2.5">
-                              {bad ? <ArrowDown className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500 bg-red-50 p-0.5 rounded" />
-                                     : <ArrowUp className="w-4 h-4 mt-0.5 flex-shrink-0 text-emerald-600 bg-emerald-50 p-0.5 rounded" />}
-                              <p className="text-sm text-slate-700 leading-relaxed font-semibold">{f}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {hasRecs && (
-                    <div className="card p-6" style={{ background: "var(--accent-dim)", borderColor: "var(--border-2)" }}>
-                      <p className="text-[10px] uppercase font-bold tracking-wider mb-4 text-[var(--accent)]">Action Plan</p>
-                      <div className="space-y-4">
-                        {latest.recommendations.map((r: string, i: number) => (
-                          <div key={i} className="flex items-start gap-2.5">
-                            <Sparkles className="w-4 h-4 mt-0.5 text-[var(--accent)] flex-shrink-0" />
-                            <p className="text-sm text-slate-700 leading-relaxed font-semibold">{r}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              return findings.length > 0 && (
+                <div className="card p-6">
+                  <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-4">Key Findings</p>
+                  <div className="space-y-4">
+                    {findings.map((f: string, i: number) => {
+                      const bad = /0%|drops|invisible|weak/i.test(f);
+                      return (
+                        <div key={i} className="flex items-start gap-2.5">
+                          {bad ? <ArrowDown className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500 bg-red-50 p-0.5 rounded" />
+                                 : <ArrowUp className="w-4 h-4 mt-0.5 flex-shrink-0 text-emerald-600 bg-emerald-50 p-0.5 rounded" />}
+                          <p className="text-sm text-slate-700 leading-relaxed font-semibold">{f}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })()}
