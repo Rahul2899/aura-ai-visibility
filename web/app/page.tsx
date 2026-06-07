@@ -427,8 +427,18 @@ export default function Home() {
                           )}
                         </div>
                         <div className="col-span-5 flex items-center gap-3">
-                          <div className="w-7 h-7 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0">
+                          <div className="relative w-7 h-7 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
                             <span className="text-[10px] font-bold text-slate-600 uppercase">{b.name.slice(0, 2)}</span>
+                            {b.domain && (
+                              // Favicon over the monogram; hides itself on load error to reveal the monogram.
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={`https://www.google.com/s2/favicons?domain=${b.domain}&sz=64`}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-contain bg-white"
+                                onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                              />
+                            )}
                           </div>
                           <div>
                             <p className="font-semibold text-sm text-slate-800 group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
@@ -510,7 +520,7 @@ export default function Home() {
               {limitReached && !admin && (
                 <div className="border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold p-3 rounded-xl flex flex-col gap-1 mb-4 leading-relaxed">
                   <span className="font-extrabold uppercase text-[10px] tracking-wider">Audit Limit Reached</span>
-                  You&apos;ve used both free audits. Try again later or from a different network.
+                  You&apos;ve reached the free audit limit (2 audits). Please check back later.
                 </div>
               )}
 

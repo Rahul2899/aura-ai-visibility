@@ -52,8 +52,18 @@ export default function BrandPage() {
   // triggered via autostart or the "Run Audit" button. Drives the centered progress UI.
   const [auditActive, setAuditActive] = useState(false);
   useEffect(() => {
-    const check = () => setAuditActive(autostart === "1" || !!localStorage.getItem(`aura_audit_job_${id}`));
-    check();
+    // Drive the centered progress panel off the live job key only. AuditButton
+    // removes that key on completion OR failure, so this clears correctly. We must
+    // NOT also key off `autostart` — that stays "1" for the page's lifetime and
+    // would leave the "Auditing…" spinner stuck forever after a failed audit.
+    // On a fresh autostart there's a brief gap before the key is written, so seed
+    // it true once when autostart is set; the key takes over on the next tick.
+    const check = () => setAuditActive(!!localStorage.getItem(`aura_audit_job_${id}`));
+    if (autostart === "1") {
+      setAuditActive(true);   // seed for the brief gap before AuditButton writes the key
+    } else {
+      check();
+    }
     const iv = setInterval(check, 1500);
     return () => clearInterval(iv);
   }, [id, autostart]);

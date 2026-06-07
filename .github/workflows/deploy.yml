@@ -1,0 +1,50 @@
+name: Test & Deploy
+
+# Manual trigger only for now. After the first manual deploy (DEPLOY.md) succeeds
+# and the EC2_* secrets are set, change this to:
+#   on:
+#     push:
+#       branches: [master]
+# to auto-deploy on every push to master.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Backend unit tests (hermetic: no DB, no live server) ---
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: pytest (unit)
+        run: python -m pytest tests/unit/ -q
+
+      # --- Web tests ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --legacy-peer-deps
+        working-directory: web
+      - name: jest
+        run: npm test
+        working-directory: web
+
+  deploy:
+    needs: test          # deploy only if tests pass
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/aura-ai-visibility
+            ./deploy.sh

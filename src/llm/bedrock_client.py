@@ -8,11 +8,17 @@ from dotenv import load_dotenv
 load_dotenv()
 log = structlog.get_logger()
 
+# Frankfurt (eu-central-1) lineup — all verified callable in this account via
+# list_inference_profiles + a live converse smoke test. Newest available, 3 vendors.
+# If you move regions, the eu. prefix must change to match (us./global.).
 BEDROCK_MODELS = [
-    "us.amazon.nova-pro-v1:0",
-    "us.meta.llama3-3-70b-instruct-v1:0",
-    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "mistral.mistral-large-2402-v1:0",  # verified enabled us-east-1; fallback: us.amazon.nova-lite-v1:0
+    "eu.anthropic.claude-sonnet-4-6",
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu.amazon.nova-2-lite-v1:0",
+    "eu.amazon.nova-pro-v1:0",
+    # NOTE: eu.mistral.pixtral-large-2502 was dropped — its Frankfurt request quota
+    # throttles ~60% of calls (verified), crippling audits. Nova Pro is reliable here.
+    # MiniMax/GLM aren't enabled as serverless profiles in this account.
 ]
 
 

@@ -153,16 +153,19 @@ def _safe_https_url(domain: str) -> str | None:
 
     return f"https://{domain}"
 
-ORCHESTRATOR_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-MAX_STEPS = 30
+# Two-phase: a stronger model writes the probe questions (where human-buyer framing
+# matters most — one call, so the cost is contained), a fast/cheap model does the
+# analysis/summary in phase B.
+QUESTION_MODEL = "eu.anthropic.claude-sonnet-4-6"
+ORCHESTRATOR_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"  # phase B (analysis)
 MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") for m in BEDROCK_MODELS]
 
 # Friendly names for the live activity feed. .get fallback means a model swap can't crash the feed.
 MODEL_DISPLAY = {
-    "us.amazon.nova-pro-v1:0": "Nova Pro",
-    "us.meta.llama3-3-70b-instruct-v1:0": "Llama 3.3",
-    "us.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku",
-    "mistral.mistral-large-2402-v1:0": "Mistral Large",
+    "eu.anthropic.claude-sonnet-4-6": "Claude Sonnet 4.6",
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
+    "eu.amazon.nova-2-lite-v1:0": "Nova 2 Lite",
+    "eu.amazon.nova-pro-v1:0": "Nova Pro",
 }
 
 
@@ -180,88 +183,6 @@ def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
     hits = sum(sum(h) for h in model_hits.values())
     return round(hits / total * 100, 1)
 
-SYSTEM_PROMPT = """You are an AI brand visibility analyst. Your job is to measure how visible a brand is in AI responses, and report what you measured. You do NOT give marketing advice or recommend actions.
-
-Follow these steps IN ORDER:
-
-1. Call get_brand_context. It returns name, domain, industry, competitors, and usually web_context (live search snippets about the brand).
-
-2. UNDERSTAND THE BRAND FIRST. Before writing any question, read web_context carefully and form a clear picture of what this brand actually is: what category it competes in, what it sells, who buys it, its price tier, and its real competitors. If web_context is thin or missing, infer carefully from the name and domain and stay conservative. Do not proceed to questions until you understand the brand.
-
-3. Write 8-10 probe questions a REAL BUYER would type into an AI assistant when shopping in this category. Every question must flow from your understanding in step 2. Do NOT ask generic "Tell me about brand X" queries.
-
-REALITY RULES — questions MUST make factual sense for THIS brand:
-- Never invent prices, specs, or numbers. Only use figures that appear in web_context. If you don't know the price, don't ask a price-bracketed question.
-- Match the brand's actual category and tier. A premium electric vehicle is not "under $10,000"; an enterprise HR suite is not "free for individuals". Absurd or contradictory premises are forbidden.
-- If a question would be implausible for someone actually shopping in this category, rewrite it.
-- Use only real competitor names (from the context or web_context), not invented ones.
-
-Question types to draw from:
-   - Brand-Direct: specific technical, pricing, integration, or compliance details (e.g., "Does [Brand] support HIPAA compliance?").
-   - Category Recommendation: natural recommendation queries with scale, industry, and pain point (e.g., "Best expense management software for a 50-person B2B SaaS startup?").
-   - Feature-Specific: solutions with specific capabilities (e.g., "Which virtual card systems allow instant CSV exports?").
-   - Competitor Face-Off: side-by-side comparisons against real competitors (e.g., "Compare [Brand] vs [Competitor] on ease-of-use and API coverage").
-   - Regional/Market: queries relevant to the brand's main customer markets.
-
-4. Call finish with the measurement.
-
-WRITE TIGHT. No filler, no hedging, no marketing speak. Describe what you measured, not what the brand should do.
-
-Rules for finish():
-- summary: ONE sentence, max 18 words. State the visibility % and the single biggest pattern observed.
-- key_findings: exactly 3-4 bullets. Each MAX 14 WORDS and MUST start with a number or %. These are FACTUAL OBSERVATIONS about the measurement only (strongest query type, weakest query type, biggest model gap). Do NOT suggest actions.
-
-Findings describe what was measured, never what to do. This tool reports AI visibility; it does not advise.
-
-GOOD finding: "0% on feature queries like 'best onboarding software'"
-GOOD finding: "88% on competitor comparisons, strongest category"
-BAD (advice, not a finding): "Publish G2 reviews to improve visibility"
-BAD (too long): "The brand achieves strong visibility on direct queries but shows concerning gaps when..."
-"""
-
-TOOLS = [
-    {
-        "toolSpec": {
-            "name": "get_brand_context",
-            "description": "Fetch brand name, domain, and competitors from the database.",
-            "inputSchema": {"json": {
-                "type": "object",
-                "properties": {"brand_id": {"type": "integer"}},
-                "required": ["brand_id"],
-            }},
-        }
-    },
-    {
-        "toolSpec": {
-            "name": "run_probe",
-            "description": "Run one probe question across every AI model. Returns per-model mention results.",
-            "inputSchema": {"json": {
-                "type": "object",
-                "properties": {
-                    "prompt_text": {"type": "string"},
-                    "target_brand_name": {"type": "string"},
-                },
-                "required": ["prompt_text", "target_brand_name"],
-            }},
-        }
-    },
-    {
-        "toolSpec": {
-            "name": "finish",
-            "description": "Save the structured audit findings and end the session.",
-            "inputSchema": {"json": {
-                "type": "object",
-                "properties": {
-                    "summary": {"type": "string", "description": "One sentence with overall visibility % and key pattern"},
-                    "key_findings": {"type": "array", "items": {"type": "string"}, "description": "3-5 factual observations about the measurement, each starting with a metric. No advice."},
-                    "probe_count": {"type": "integer"},
-                    "visibility_pct": {"type": "number"},
-                },
-                "required": ["summary", "key_findings", "probe_count", "visibility_pct"],
-            }},
-        }
-    },
-]
 
 
 def _bedrock_client():
@@ -271,16 +192,6 @@ def _bedrock_client():
         kwargs["aws_access_key_id"] = os.environ.get("AWS_ACCESS_KEY_ID")
         kwargs["aws_secret_access_key"] = os.environ.get("AWS_SECRET_ACCESS_KEY")
     return boto3.client("bedrock-runtime", **kwargs)
-
-
-def _call_claude_sync(client, messages: list) -> dict:
-    return client.converse(
-        modelId=ORCHESTRATOR_MODEL,
-        system=[{"text": SYSTEM_PROMPT}],
-        messages=messages,
-        toolConfig={"tools": TOOLS},
-        inferenceConfig={"maxTokens": 4096, "temperature": 0.3},
-    )
 
 
 async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str, on_event=None) -> dict:
@@ -379,8 +290,78 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
     return context
 
 
+QUESTION_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when researching what to buy in a category. Given a brand's context, output 8-10 such questions.
+
+You will receive the brand's name, industry, competitors, and web_context (live search results). UNDERSTAND the brand first: what category it competes in, what it sells, who buys it, its price tier, its real competitors. Then write questions that flow from that understanding.
+
+REALITY RULES — every question must make factual sense for THIS brand:
+- Never invent prices, specs, or numbers. Only use figures from web_context.
+- Match the brand's real category and tier (a premium EV is not "under $10,000").
+- Write how a real person actually types to an AI — natural, with real context and scenario ("a 20-person startup that needs docs and project tracking"), not terse keyword queries.
+- Use only real competitor names (from context/web_context).
+- Mix types: brand-direct (features/pricing/compliance), category recommendation (scale+industry+pain point), feature-specific, competitor comparison, regional/market.
+
+Return ONLY a JSON object: {"questions": ["...", "..."]}. No prose, no markdown fences."""
+
+
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> list[str]:
+    """Phase A: one call to the stronger QUESTION_MODEL to write all probe questions,
+    grounded in the brand's real web context. Custom questions (if any) run first."""
+    user = f"Brand context:\n{json.dumps(context, indent=2)}\n\nWrite 8-10 buyer questions as JSON."
+    resp = await asyncio.to_thread(
+        lambda: bedrock.converse(
+            modelId=QUESTION_MODEL,
+            system=[{"text": QUESTION_GEN_PROMPT}],
+            messages=[{"role": "user", "content": [{"text": user}]}],
+            inferenceConfig={"maxTokens": 1500, "temperature": 0.7},
+        )
+    )
+    raw = resp["output"]["message"]["content"][0]["text"].strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].removeprefix("json").strip()
+    try:
+        generated = json.loads(raw).get("questions", [])
+    except (json.JSONDecodeError, KeyError, IndexError):
+        log.warning("question_gen_parse_failed", raw=raw[:200])
+        generated = []
+    custom = [q.strip() for q in (custom_questions or []) if q.strip()]
+    # Custom questions first, then generated; cap to keep audits bounded.
+    return (custom + [q for q in generated if isinstance(q, str) and q.strip()])[:12]
+
+
+ANALYSIS_PROMPT = """You are an AI brand visibility analyst. You receive a brand name and per-probe results (each question, and which AI models mentioned the brand). Report what was measured. You do NOT give marketing advice.
+
+Return ONLY JSON: {"summary": "...", "key_findings": ["...", "..."]}.
+- summary: ONE sentence, max 18 words, stating the overall visibility % and the single biggest pattern.
+- key_findings: 3-4 factual observations, each starting with a number or %, max 14 words. Cover strongest query type, weakest query type, biggest model gap. NO advice — describe what was measured, never what to do.
+No prose, no markdown fences."""
+
+
+async def _generate_analysis(bedrock, brand_name: str, visibility_pct: float, probe_results: list[dict]) -> dict:
+    """Phase B analysis: one fast Haiku call to write the summary + factual findings."""
+    payload = {"brand": brand_name, "overall_visibility_pct": visibility_pct, "probes": probe_results}
+    resp = await asyncio.to_thread(
+        lambda: bedrock.converse(
+            modelId=ORCHESTRATOR_MODEL,
+            system=[{"text": ANALYSIS_PROMPT}],
+            messages=[{"role": "user", "content": [{"text": json.dumps(payload)}]}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.3},
+        )
+    )
+    raw = resp["output"]["message"]["content"][0]["text"].strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].removeprefix("json").strip()
+    try:
+        d = json.loads(raw)
+        return {"summary": d.get("summary", ""), "key_findings": d.get("key_findings", [])}
+    except (json.JSONDecodeError, IndexError):
+        return {"summary": f"{brand_name} scored {visibility_pct}% AI visibility across probes.", "key_findings": []}
+
+
 async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, on_event=None) -> Insight | None:
-    """Run the Hermes orchestration loop for a brand. Returns saved Insight or None on dry_run."""
+    """Two-phase audit: (A) a stronger model writes buyer questions grounded in live
+    web context, (B) probes run in parallel across the model panel and a fast model
+    writes the factual summary. Returns the saved Insight, or None on dry_run."""
     def emit(msg: str):
         if on_event:
             try:
@@ -389,101 +370,57 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
                 pass
 
     bedrock = _bedrock_client()
-    custom_block = ""
-    if custom_questions:
-        formatted = "\n".join(f"- {q}" for q in custom_questions if q.strip())
-        custom_block = f"\n\nThe user also wants these specific questions tested (run them FIRST before generating your own):\n{formatted}"
-    messages = [{"role": "user", "content": [{"text": f"Audit brand_id={brand_id}. Start with get_brand_context.{custom_block}"}]}]
-    tool_calls_log = []
-    probe_count = 0
+    brand = await session.get(Brand, brand_id)
+    target_brand = brand.name if brand else ""
     model_hits: dict[str, list[bool]] = {}  # {model: [mentioned_per_probe]}
 
     log.info("orchestrate_start", brand_id=brand_id, dry_run=dry_run)
     emit("Starting audit…")
 
-    for step in range(MAX_STEPS):
-        response = await asyncio.to_thread(_call_claude_sync, bedrock, messages)
-        msg = response["output"]["message"]
-        messages.append(msg)
+    # --- Phase A: understand the brand, then write the questions (stronger model) ---
+    emit("Searching the web for brand context…")
+    context = await _get_brand_context_tool(session, brand_id)
+    emit("Gathered brand context. Generating questions…")
+    questions = await _generate_questions(bedrock, context, custom_questions)
+    if not questions:
+        log.error("no_questions_generated", brand_id=brand_id)
+        return None
 
-        tool_results = []
-        finished = False
-        insight_data = {}
+    if dry_run:
+        for q in questions:
+            log.info("dry_run_probe", prompt=q)
+        log.info("dry_run_complete", count=len(questions))
+        return None
 
-        for block in msg["content"]:
-            if "toolUse" not in block:
-                continue
+    # --- Phase B: run every question across the model panel (parallel), collect results ---
+    probe_results = []
+    for i, q in enumerate(questions, 1):
+        emit(f"Asking {len(MODEL_CONFIGS)} models: \"{q[:60]}…\"")
+        result = await _run_probe_tool(session, brand_id, q, target_brand, on_event=emit)
+        for model, mentioned in result.get("breakdown", {}).items():
+            model_hits.setdefault(model, []).append(mentioned == "yes")
+        probe_results.append({"question": q, "visibility_pct": result["visibility_pct"], "models": result.get("breakdown", {})})
+        emit(f"Probe {i}: {result['visibility_pct']}% visible")
+        log.info("probe_done", probe_count=i, visibility_pct=result["visibility_pct"])
 
-            tool_name = block["toolUse"]["name"]
-            tool_input = block["toolUse"]["input"]
-            tool_use_id = block["toolUse"]["toolUseId"]
-            tool_calls_log.append({"tool": tool_name, "input": tool_input})
+    # Visibility from actual probe results (total hits across every probe×model / total results).
+    visibility_pct = compute_visibility(model_hits)
+    model_breakdown = {m: round(sum(h) / len(h) * 100, 1) for m, h in model_hits.items() if h}
+    emit(f"Scoring visibility… {visibility_pct}%")
 
-            if tool_name == "get_brand_context":
-                emit("Searching the web for brand context…")
-                result = await _get_brand_context_tool(session, tool_input["brand_id"])
-                emit("Gathered brand context. Generating questions…")
+    analysis = await _generate_analysis(bedrock, target_brand, visibility_pct, probe_results)
 
-            elif tool_name == "run_probe":
-                if dry_run:
-                    result = {"dry_run": True, "prompt": tool_input["prompt_text"]}
-                    log.info("dry_run_probe", prompt=tool_input["prompt_text"])
-                else:
-                    emit(f"Asking {len(MODEL_CONFIGS)} models: \"{tool_input['prompt_text'][:60]}…\"")
-                    result = await _run_probe_tool(session, brand_id, tool_input["prompt_text"], tool_input["target_brand_name"], on_event=emit)
-                    probe_count += 1
-                    for model, mentioned in result.get("breakdown", {}).items():
-                        model_hits.setdefault(model, []).append(mentioned == "yes")
-                    emit(f"Probe {probe_count}: {result['visibility_pct']}% visible")
-                    log.info("probe_done", probe_count=probe_count, visibility_pct=result["visibility_pct"])
-
-            elif tool_name == "finish":
-                insight_data = tool_input
-                finished = True
-                result = {"status": "saved"}
-
-            else:
-                result = {"error": f"unknown tool: {tool_name}"}
-
-            tool_results.append({
-                "toolResult": {"toolUseId": tool_use_id, "content": [{"text": json.dumps(result)}]}
-            })
-
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-
-        if finished:
-            if dry_run:
-                log.info("dry_run_complete", steps=step + 1)
-                return None
-
-            model_breakdown = {
-                m: round(sum(hits) / len(hits) * 100, 1)
-                for m, hits in model_hits.items() if hits
-            }
-            # Compute visibility from actual probe results, NOT from Haiku's self-reported
-            # number — the model can miscalculate. Overall visibility = total hits across
-            # every (probe × model) result divided by total results.
-            visibility_pct = compute_visibility(model_hits)
-            emit(f"Scoring visibility… {visibility_pct}%")
-            insight = Insight(
-                brand_id=brand_id,
-                summary=insight_data["summary"],
-                key_findings=insight_data.get("key_findings", []),
-                recommendations=[],  # Aura measures visibility; it does not advise. Column kept to avoid a migration.
-                probe_count=probe_count,
-                visibility_pct=visibility_pct,
-                model_breakdown=model_breakdown,
-                raw_tool_calls=tool_calls_log,
-            )
-            session.add(insight)
-            await session.commit()
-            log.info("orchestrate_done", brand_id=brand_id, probe_count=probe_count,
-                     visibility_pct=visibility_pct)
-            return insight
-
-        if response["stopReason"] == "end_turn":
-            break
-
-    log.error("orchestrate_max_steps", brand_id=brand_id, steps=MAX_STEPS)
-    return None
+    insight = Insight(
+        brand_id=brand_id,
+        summary=analysis["summary"],
+        key_findings=analysis.get("key_findings", []),
+        recommendations=[],  # Aura measures visibility; it does not advise. Column kept to avoid a migration.
+        probe_count=len(questions),
+        visibility_pct=visibility_pct,
+        model_breakdown=model_breakdown,
+        raw_tool_calls=[{"question": q} for q in questions],
+    )
+    session.add(insight)
+    await session.commit()
+    log.info("orchestrate_done", brand_id=brand_id, probe_count=len(questions), visibility_pct=visibility_pct)
+    return insight
