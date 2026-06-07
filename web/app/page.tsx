@@ -411,7 +411,10 @@ export default function Home() {
                   <div className="col-span-5">Brand</div>
                   <div className="col-span-2 text-right">Score</div>
                   <div className="col-span-2 text-right">Trend</div>
-                  <div className="col-span-2 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</div>
+                  <div className="col-span-2 flex items-center justify-end">
+                    <span className="w-7 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</span>
+                    <span className="w-16" />
+                  </div>
                 </div>
 
                 {search && filtered.filter(b => b.visibility_pct !== null).length === 0 && (
@@ -460,29 +463,35 @@ export default function Home() {
                         </div>
                         <div className="col-span-2 flex justify-end"><ScoreChip pct={b.visibility_pct} /></div>
                         <div className="col-span-2 flex justify-end"><TrendPill v={b.trend} /></div>
-                        <div className="col-span-2 text-right flex items-center justify-end gap-1">
-                          <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "0"}</span>
+                        <div className="col-span-2 flex items-center justify-end">
+                          {/* Fixed-width number cell so the count always lines up across rows,
+                              regardless of the hover action buttons that follow. */}
+                          <span className="text-slate-700 text-sm font-semibold tabular w-7 text-right">{b.probe_count ?? "0"}</span>
+                          {/* Action buttons occupy a reserved 16-wide slot; they fade in on
+                              hover but never shift the number. */}
+                          <div className="w-16 flex items-center justify-end gap-1">
                           {!b.is_example && (
                             <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
-                              className="ml-1 w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
+                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
                               title="Re-run audit"
                               aria-label={`Re-run audit for ${b.name}`}>
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
                           {b.is_example ? (
-                            <span title="Example brands are read-only" className="ml-1 w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
+                            <span title="Example brands are read-only" className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
                               <Trash2 className="w-3.5 h-3.5 text-slate-200" />
                             </span>
                           ) : (
                             <button onClick={e => { e.preventDefault(); deleteBrand(b.id); }}
                               disabled={deleting === b.id}
-                              className="ml-1 w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
                               title="Delete brand"
                               aria-label={`Delete ${b.name}`}>
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
+                          </div>
                         </div>
                       </div>
                     </Link>

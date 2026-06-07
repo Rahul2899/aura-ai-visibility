@@ -11,14 +11,16 @@ log = structlog.get_logger()
 # Frankfurt (eu-central-1) lineup — all verified callable in this account via
 # list_inference_profiles + a live converse smoke test. Newest available, 3 vendors.
 # If you move regions, the eu. prefix must change to match (us./global.).
+# Four DIFFERENT model families (Anthropic, Amazon, Qwen, NVIDIA) for a credible
+# "cross-model visibility" measurement. All verified callable + parseable + non-
+# throttling in eu-central-1. Qwen/Nemotron are cheap open-weight models, which also
+# keeps per-audit cost down. Avoided: Mistral Pixtral (throttles ~60% in Frankfurt),
+# MiniMax & gpt-oss (respond in a schema our converse parser can't read -> 'text' error).
 BEDROCK_MODELS = [
-    "eu.anthropic.claude-sonnet-4-6",
-    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "eu.amazon.nova-2-lite-v1:0",
-    "eu.amazon.nova-pro-v1:0",
-    # NOTE: eu.mistral.pixtral-large-2502 was dropped — its Frankfurt request quota
-    # throttles ~60% of calls (verified), crippling audits. Nova Pro is reliable here.
-    # MiniMax/GLM aren't enabled as serverless profiles in this account.
+    "eu.anthropic.claude-sonnet-4-6",     # Anthropic
+    "eu.amazon.nova-pro-v1:0",            # Amazon
+    "qwen.qwen3-32b-v1:0",               # Qwen / Alibaba
+    "nvidia.nemotron-super-3-120b",      # NVIDIA
 ]
 
 

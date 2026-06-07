@@ -110,8 +110,12 @@ async def start_audit(
             detail="An audit for this brand is already running. Please wait for it to finish.",
         )
 
-        if not is_admin(session_id, x_admin_key):
-            key = rate_key = limit_key(session_id, client_ip(request))
+    # Enforce the per-session audit limit. The increment happens HERE (at request time),
+    # so a queued/running audit already counts — a 3rd request while 2 are in flight is
+    # blocked even before any result lands.
+    if not is_admin(session_id, x_admin_key):
+        key = rate_key = limit_key(session_id, client_ip(request))
+        async with SessionLocal() as session:
             # Atomic upsert + increment. Two audits firing at once for the same key
             # (e.g. Compare's parallel runs) would otherwise both INSERT and crash on
             # the primary-key constraint. ON CONFLICT increments in one statement and
@@ -130,11 +134,13 @@ async def start_audit(
             )
             new_count = (await session.execute(stmt)).scalar_one()
             await session.commit()
-            if new_count > 2:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Audit limit exceeded. You can run up to 2 audits per session.",
-                )
+        if new_count > 2:
+            # Over the limit — refund the increment we just made and reject.
+            await _refund_audit_slot(rate_key)
+            raise HTTPException(
+                status_code=429,
+                detail="Audit limit exceeded. You can run up to 2 audits per session.",
+            )
 
     sem = get_audit_semaphore()
     if sem is not None and sem.locked():

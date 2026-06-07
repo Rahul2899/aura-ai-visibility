@@ -1,9 +1,12 @@
 const MODEL_NAMES: Record<string, string> = {
-  // Current Frankfurt (eu.) lineup
+  // Current Frankfurt lineup (4 different families)
   "eu.anthropic.claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "eu.amazon.nova-pro-v1:0": "Nova Pro",
+  "qwen.qwen3-32b-v1:0": "Qwen3 32B",
+  "nvidia.nemotron-super-3-120b": "NVIDIA Nemotron",
+  // analysis model + historical
   "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
   "eu.amazon.nova-2-lite-v1:0": "Nova 2 Lite",
-  "eu.amazon.nova-pro-v1:0": "Nova Pro",
   // Historical / cross-region IDs that may appear in older stored audits
   "us.amazon.nova-pro-v1:0": "Nova Pro",
   "amazon.nova-micro-v1:0": "Nova Micro",
@@ -22,6 +25,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   "nova": "🟡", "anthropic": "🟠", "claude": "🟠",
   "llama": "🔵", "meta": "🔵", "gemma": "🟢", "google": "🟢",
   "gpt": "⚫", "openai": "⚫", "glm": "🔷", "nemotron": "🟩", "hermes": "⚪",
+  "qwen": "🟣", "nvidia": "🟩", "mistral": "🟠",
 };
 
 export function friendlyName(modelId: string): string {
@@ -30,7 +34,7 @@ export function friendlyName(modelId: string): string {
   // (eu./us./global./apac.), provider namespace, version/date suffixes, then title-case.
   let slug = modelId.split("/").pop()?.split(":")[0] ?? modelId;
   slug = slug.replace(/^(eu|us|global|apac)\./, "");          // region prefix
-  slug = slug.replace(/^(anthropic|amazon|meta|mistral|ai21|cohere)\./, ""); // provider
+  slug = slug.replace(/^(anthropic|amazon|meta|mistral|ai21|cohere|qwen|nvidia|openai|minimax)\./, ""); // provider
   slug = slug.replace(/-v\d+(:\d+)?$/, "");                     // version (-v1:0)
   slug = slug.replace(/-\d{8}$/, "");                           // date stamp (-20251001)
   return slug.replace(/[-_.]/g, " ").trim()
@@ -53,5 +57,7 @@ export function providerKey(modelId: string): string {
   if (lower.includes("gemma") || lower.includes("google")) return "google";
   if (lower.includes("gpt") || lower.includes("openai")) return "openai";
   if (lower.includes("mistral") || lower.includes("pixtral")) return "mistral";
+  if (lower.includes("qwen")) return "qwen";
+  if (lower.includes("nemotron") || lower.includes("nvidia")) return "nvidia";
   return "generic";
 }
