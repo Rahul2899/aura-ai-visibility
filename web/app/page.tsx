@@ -442,8 +442,8 @@ export default function Home() {
                             )}
                           </div>
                         </div>
-                        <div className="col-span-2 text-right"><ScoreChip pct={b.visibility_pct} /></div>
-                        <div className="col-span-2 text-right flex justify-end"><TrendPill v={b.trend} /></div>
+                        <div className="col-span-2 flex justify-end"><ScoreChip pct={b.visibility_pct} /></div>
+                        <div className="col-span-2 flex justify-end"><TrendPill v={b.trend} /></div>
                         <div className="col-span-2 text-right flex items-center justify-end gap-1">
                           <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "0"}</span>
                           {!b.is_example && (

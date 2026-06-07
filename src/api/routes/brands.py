@@ -39,16 +39,27 @@ class BrandCreate(BaseModel):
     @field_validator("name")
     @classmethod
     def name_not_empty(cls, v: str) -> str:
-        if not v or not v.strip():
+        v = (v or "").strip()
+        if not v:
             raise ValueError("Brand name cannot be empty")
-        return v.strip()
-
-    @field_validator("session_id")
-    @classmethod
-    def session_id_not_reserved(cls, v: str) -> str:
-        if v in ("example", "admin"):
-            raise ValueError("Reserved session_id")
+        # Cap at the DB column width (String(255)) so an over-long name returns a
+        # clean 422 instead of crashing on a DB truncation error (500).
+        if len(v) > 200:
+            raise ValueError("Brand name is too long (max 200 characters)")
         return v
+
+    @field_validator("domain", "industry")
+    @classmethod
+    def field_within_db_width(cls, v: str) -> str:
+        # domain/industry map to String(255)/String(100). Cap below those so an
+        # over-long value returns 422 rather than a 500 DB truncation error.
+        if v and len(v) > 100:
+            raise ValueError("Value is too long (max 100 characters)")
+        return v
+
+    # Note: the reserved-session check ("admin"/"example") lives in the create_brand
+    # route, not here, because it must allow session_id="admin" for an authenticated
+    # admin (verified via X-Admin-Key) while still rejecting it for everyone else.
 
 
 def _brand_scope(stmt, session_id, x_admin_key):
@@ -168,7 +179,15 @@ async def list_brands(session_id: str = None, x_admin_key: str = Header(None)):
 
 
 @router.post("", status_code=201)
-async def create_brand(body: BrandCreate, request: Request):
+async def create_brand(body: BrandCreate, request: Request, x_admin_key: str = Header(None)):
+    # "example" is never assignable. "admin" is allowed only for an authenticated
+    # admin (so the admin can create brands); a normal user faking session_id="admin"
+    # without the real key is rejected.
+    if body.session_id == "example":
+        raise HTTPException(status_code=422, detail="Reserved session_id")
+    if body.session_id == "admin" and not is_admin("admin", x_admin_key):
+        raise HTTPException(status_code=422, detail="Reserved session_id")
+
     if not _create_limiter.allow(client_ip(request)):
         raise HTTPException(
             status_code=429,

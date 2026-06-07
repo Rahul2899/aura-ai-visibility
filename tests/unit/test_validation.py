@@ -28,14 +28,14 @@ def test_whitespace_only_name_rejected():
         BrandCreate(name="   ", session_id="sess_1")
 
 
-def test_reserved_session_example_rejected():
-    with pytest.raises(ValidationError):
-        BrandCreate(name="Acme", session_id="example")
-
-
-def test_reserved_session_admin_rejected():
-    with pytest.raises(ValidationError):
-        BrandCreate(name="Acme", session_id="admin")
+# The reserved-session check ("admin"/"example") moved from the BrandCreate model
+# to the create_brand route, because the route can see X-Admin-Key and must allow
+# session_id="admin" for an authenticated admin while rejecting it for everyone else.
+# The model now ACCEPTS these values; the route-level guarantee is covered by
+# test_api_comprehensive.py::test_create_brand_reserved_session_{admin,example}_rejected.
+def test_reserved_session_accepted_at_model_level():
+    assert BrandCreate(name="Acme", session_id="example").session_id == "example"
+    assert BrandCreate(name="Acme", session_id="admin").session_id == "admin"
 
 
 def test_optional_fields_default_empty():
@@ -45,10 +45,18 @@ def test_optional_fields_default_empty():
     assert b.session_id == ""
 
 
-def test_long_name_accepted_at_model_level():
-    # Length is enforced at the DB column (String(255)), not the request model.
-    b = BrandCreate(name="A" * 300, session_id="sess_1")
-    assert len(b.name) == 300
+def test_long_name_rejected_at_model_level():
+    # Names are now capped in the model (max 200) so an over-long name returns a
+    # clean 422 instead of crashing on a DB String(255) truncation error (500).
+    with pytest.raises(ValidationError):
+        BrandCreate(name="A" * 300, session_id="sess_1")
+
+
+def test_long_domain_and_industry_rejected():
+    with pytest.raises(ValidationError):
+        BrandCreate(name="Acme", domain="a" * 300, session_id="sess_1")
+    with pytest.raises(ValidationError):
+        BrandCreate(name="Acme", industry="b" * 300, session_id="sess_1")
 
 
 # ── AuditRequest ──────────────────────────────────────────────────────────────
