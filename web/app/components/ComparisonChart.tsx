@@ -41,7 +41,9 @@ export default function ComparisonChart({ brands }: { brands: Brand[] }) {
           <YAxis type="category" dataKey="name" width={110}
             tick={{ fill: "var(--text-2)", fontSize: 13, fontWeight: 500 }} axisLine={false} tickLine={false} />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(92,110,245,0.04)" }} />
-          <Bar dataKey="pct" radius={[0, 6, 6, 0]} background={{ fill: "var(--surface-2)", radius: 6 }}>
+          {/* minPointSize keeps a 0% bar (e.g. a brand no model mentions) visible as a
+              sliver so its "0%" label renders, instead of vanishing into the axis. */}
+          <Bar dataKey="pct" radius={[0, 6, 6, 0]} minPointSize={3} background={{ fill: "var(--surface-2)", radius: 6 }}>
             {data.map((entry, i) => (
               <Cell key={i} fill={color(entry.pct)} />
             ))}
