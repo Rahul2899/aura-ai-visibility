@@ -1,4 +1,3 @@
-import os
 import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Header, Request
