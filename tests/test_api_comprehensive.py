@@ -550,19 +550,19 @@ def test_share_invalid_token_404(client):
 # the whole test run. Running it last avoids poisoning the brand-creation tests above.
 
 def test_brand_creation_rate_limit_eventually_429s(client):
+    # The create limiter is keyed per session (so users behind one NAT don't collide).
+    # Flooding from ONE session must eventually 429.
+    flood_sess = "sess_flood_single"
     created_ids = []
     hit_429 = False
     for i in range(40):
-        r = client.post(
-            "/brands",
-            json={"name": f"FloodBrand{i}", "session_id": f"sess_flood_{i}"},
-        )
+        r = client.post("/brands", json={"name": f"FloodBrand{i}", "session_id": flood_sess})
         if r.status_code == 429:
             hit_429 = True
             break
         if r.status_code == 201:
-            created_ids.append((r.json()["id"], f"sess_flood_{i}"))
-    for bid, sess in created_ids:
-        client.delete(f"/brands/{bid}?session_id={sess}")
-    assert hit_429, "brand creation rate limit never triggered"
+            created_ids.append(r.json()["id"])
+    for bid in created_ids:
+        client.delete(f"/brands/{bid}?session_id={flood_sess}")
+    assert hit_429, "brand creation rate limit never triggered for a single session"
 

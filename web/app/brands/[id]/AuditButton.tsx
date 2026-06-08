@@ -133,7 +133,10 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       return;
     }
     if (!res.ok) {
-      setJob({ status: "failed", error: "Failed to start audit job." });
+      // Surface the server's real message (e.g. "an audit is already running",
+      // "audit limit exceeded") instead of a generic failure.
+      const data = await res.json().catch(() => ({}));
+      setJob({ status: "failed", error: typeof data.detail === "string" ? data.detail : "Failed to start audit job." });
       started.current = false;
       return;
     }

@@ -19,7 +19,9 @@ import {
   Globe,
   ChevronDown,
   Building2,
-  RefreshCw
+  RefreshCw,
+  TrendingUp,
+  TrendingDown
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -129,8 +131,9 @@ function TrendPill({ v }: { v: number | null }) {
   if (v === null || v === 0) return <span className="text-slate-400 text-xs font-semibold px-2 py-1 bg-slate-100 rounded-lg border border-slate-200">—</span>;
   const up = v > 0;
   return (
-    <span className={`text-xs font-semibold px-2 py-1 rounded-lg flex items-center gap-1 w-fit ${up ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
-      {up ? "▲" : "▼"} {Math.abs(v).toFixed(1)}%
+    <span className={`text-xs font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1 w-fit ${up ? "bg-emerald-50 text-emerald-700 border border-emerald-300" : "bg-red-50 text-red-600 border border-red-300"}`}>
+      {up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+      {up ? "+" : ""}{v.toFixed(1)}%
     </span>
   );
 }
@@ -384,10 +387,10 @@ export default function Home() {
                   {/* Search / actions bar */}
                   <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative">
-                      <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                       <input value={search} onChange={e => setSearch(e.target.value)}
                         placeholder="Search..."
-                        className="w-full sm:w-48 input-field pl-9 py-2 text-xs"
+                        className="w-full sm:w-48 input-field pl-10 py-2 text-xs"
                         aria-label="Search brand names"
                       />
                     </div>
@@ -411,7 +414,10 @@ export default function Home() {
                   <div className="col-span-5">Brand</div>
                   <div className="col-span-2 text-right">Score</div>
                   <div className="col-span-2 text-right">Trend</div>
-                  <div className="col-span-2 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</div>
+                  <div className="col-span-2 flex items-center justify-end">
+                    <span className="w-7 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</span>
+                    <span className="w-16" />
+                  </div>
                 </div>
 
                 {search && filtered.filter(b => b.visibility_pct !== null).length === 0 && (
@@ -460,29 +466,35 @@ export default function Home() {
                         </div>
                         <div className="col-span-2 flex justify-end"><ScoreChip pct={b.visibility_pct} /></div>
                         <div className="col-span-2 flex justify-end"><TrendPill v={b.trend} /></div>
-                        <div className="col-span-2 text-right flex items-center justify-end gap-1">
-                          <span className="text-slate-700 text-sm font-semibold tabular">{b.probe_count ?? "0"}</span>
+                        <div className="col-span-2 flex items-center justify-end">
+                          {/* Fixed-width number cell so the count always lines up across rows,
+                              regardless of the hover action buttons that follow. */}
+                          <span className="text-slate-700 text-sm font-semibold tabular w-7 text-right">{b.probe_count ?? "0"}</span>
+                          {/* Action buttons occupy a reserved 16-wide slot; they fade in on
+                              hover but never shift the number. */}
+                          <div className="w-16 flex items-center justify-end gap-1">
                           {!b.is_example && (
                             <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
-                              className="ml-1 w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
+                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
                               title="Re-run audit"
                               aria-label={`Re-run audit for ${b.name}`}>
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
                           {b.is_example ? (
-                            <span title="Example brands are read-only" className="ml-1 w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
+                            <span title="Example brands are read-only" className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
                               <Trash2 className="w-3.5 h-3.5 text-slate-200" />
                             </span>
                           ) : (
                             <button onClick={e => { e.preventDefault(); deleteBrand(b.id); }}
                               disabled={deleting === b.id}
-                              className="ml-1 w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
                               title="Delete brand"
                               aria-label={`Delete ${b.name}`}>
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
+                          </div>
                         </div>
                       </div>
                     </Link>

@@ -1,10 +1,10 @@
 import os
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, delete as sql_delete
-from src.api.auth import is_admin, require_read, require_owner_or_admin
+from src.api.auth import is_admin, limit_key, require_read, require_owner_or_admin
 from src.api.ratelimit import SlidingWindowLimiter, client_ip
 from src.db import SessionLocal
 from src.models import Brand, Prompt, Run, Mention, Insight, ProbePerformance
@@ -63,8 +63,11 @@ class BrandCreate(BaseModel):
 
 
 def _brand_scope(stmt, session_id, x_admin_key):
+    # Admin sees EVERYTHING, including brands users soft-deleted (hidden_at set).
     if is_admin(session_id, x_admin_key):
         return stmt
+    # Normal users never see soft-deleted brands.
+    stmt = stmt.where(Brand.hidden_at.is_(None))
     if session_id and session_id != "admin":
         return stmt.where((Brand.session_id == session_id) | (Brand.session_id == "example"))
     return stmt.where(Brand.session_id == "example")
@@ -188,9 +191,11 @@ async def create_brand(body: BrandCreate, request: Request, x_admin_key: str = H
     if body.session_id == "admin" and not is_admin("admin", x_admin_key):
         raise HTTPException(status_code=422, detail="Reserved session_id")
 
-    # Admins (verified above) are exempt from the per-IP create limiter, same as
-    # they're exempt from the audit limit.
-    if not is_admin(body.session_id, x_admin_key) and not _create_limiter.allow(client_ip(request)):
+    # Admins are exempt. For everyone else the limiter is keyed per SESSION (falling
+    # back to IP only when there's no session) — so 10-20 distinct users behind one
+    # shared IP (office/NAT) each get their own create quota instead of colliding.
+    create_key = limit_key(body.session_id, client_ip(request))
+    if not is_admin(body.session_id, x_admin_key) and not _create_limiter.allow(create_key):
         raise HTTPException(
             status_code=429,
             detail="Too many brands created. Please wait before adding more.",
@@ -235,6 +240,13 @@ async def delete_brand(brand_id: int, session_id: str = None, x_admin_key: str =
         if brand.session_id == "example":
             raise HTTPException(status_code=403, detail="Cannot delete preloaded example brands")
         require_owner_or_admin(brand, session_id, x_admin_key)
+
+        # A normal user's delete is SOFT — hide the brand from their dashboard but keep
+        # the data so admin still has it. Only an admin delete is a hard, cascade delete.
+        if not is_admin(session_id, x_admin_key):
+            brand.hidden_at = datetime.utcnow()
+            await session.commit()
+            return
 
         await session.execute(sql_delete(Insight).where(Insight.brand_id == brand_id))
         await session.execute(sql_delete(ProbePerformance).where(ProbePerformance.brand_id == brand_id))

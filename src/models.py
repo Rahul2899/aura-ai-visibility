@@ -28,6 +28,9 @@ class Brand(Base):
     # Opaque token for read-only public sharing of this brand's report. Null until
     # the owner generates a share link.
     share_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
+    # Soft delete: a user removing a brand sets this (hidden from THEIR dashboard but
+    # kept in the DB so admin still sees it). An admin delete is a hard DB delete.
+    hidden_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     prompts: Mapped[list["Prompt"]] = relationship(back_populates="brand")
 

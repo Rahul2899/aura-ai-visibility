@@ -15,8 +15,9 @@ The old AWS/OpenRouter/admin/DB secrets have been exposed. Do NOT deploy with th
 
 - **AWS Bedrock — preferred: IAM role, no keys.**
   1. Create an IAM role (e.g. `aura-ec2-bedrock`) with a least-privilege policy:
-     `bedrock:InvokeModel` on the model/inference-profile ARNs for the lineup
-     (Claude Sonnet 4.6, Claude Haiku 4.5, Nova 2 Lite, Nova Pro) in `eu-central-1`.
+     `bedrock:InvokeModel` on the model/inference-profile ARNs for the lineup.
+     Probe models: Claude Sonnet 4.6, Nova Pro, Qwen3 32B, NVIDIA Nemotron Super.
+     Also enable Claude Haiku 4.5 (analysis/orchestrator model). All in `eu-central-1`.
      NOTE: the model IDs use the `eu.` cross-region-inference prefix — the EC2
      region MUST be `eu-central-1` or every probe fails. The exact IDs are in
      `src/llm/bedrock_client.py` (BEDROCK_MODELS) + `QUESTION_MODEL`/`ORCHESTRATOR_MODEL`

@@ -36,6 +36,7 @@ def _check_env():
 _MIGRATIONS = [
     "ALTER TABLE brands ADD COLUMN IF NOT EXISTS industry VARCHAR(100)",
     "ALTER TABLE brands ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)",
+    "ALTER TABLE brands ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMP",
     """DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_brand_share_token') THEN
             ALTER TABLE brands ADD CONSTRAINT uq_brand_share_token UNIQUE (share_token);
