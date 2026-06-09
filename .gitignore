@@ -20,6 +20,12 @@ CLAUDE.md
 # Dev notes (not for public repo)
 docs/journey/
 docs/superpowers/
+docs/AURA_AI_COMPLETE_JOURNEY.md
+LINKEDIN_POST.md
+
+# QA / verification artifacts (local-only)
+.qa/
+.qa_*.py
 
 # Screenshot artifacts from verification runs
 *.png

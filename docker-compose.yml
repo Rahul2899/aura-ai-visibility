@@ -23,7 +23,7 @@ services:
     environment:
       # Overrides DATABASE_URL from .env to use the db service hostname
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-peec}:${POSTGRES_PASSWORD:-peec}@db:5432/${POSTGRES_DB:-peec}
-    # Port 8000 intentionally NOT exposed externally — all traffic must go through nginx
+    # Port 8000 intentionally NOT exposed externally — all traffic must go through Caddy
     expose:
       - "8000"
     depends_on:

@@ -10,9 +10,9 @@ from collections import defaultdict, deque
 
 
 def client_ip(request) -> str:
-    """Real client IP for rate limiting. Prefers nginx's X-Real-IP (single,
-    unspoofable through one trusted proxy), then the rightmost X-Forwarded-For
-    entry (also nginx-appended), then the socket peer."""
+    """Real client IP for rate limiting. Prefers X-Real-IP (single, unspoofable
+    through one trusted reverse proxy), then the rightmost X-Forwarded-For entry
+    (both set by the Caddy proxy in front of the app), then the socket peer."""
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()

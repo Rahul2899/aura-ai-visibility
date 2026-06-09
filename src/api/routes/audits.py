@@ -1,4 +1,3 @@
-import os
 import time
 import structlog
 from datetime import datetime

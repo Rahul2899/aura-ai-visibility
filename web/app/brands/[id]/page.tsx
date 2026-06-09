@@ -304,7 +304,7 @@ export default function BrandPage() {
                 <div className="card p-6">
                   <p className="text-red-500 text-[10px] uppercase font-bold tracking-wider mb-4">Visibility Gaps</p>
                   <div className="space-y-4">
-                    {probePerf.bottom.map(({ prompt, hit_rate }: { prompt: string; hit_rate: number }) => (
+                    {probePerf.bottom.length > 0 ? probePerf.bottom.map(({ prompt, hit_rate }: { prompt: string; hit_rate: number }) => (
                       <div key={prompt}>
                         <div className="flex justify-between gap-2 mb-1.5">
                           <p className="text-xs text-slate-600 flex-1 font-semibold">{prompt}</p>
@@ -312,7 +312,9 @@ export default function BrandPage() {
                         </div>
                         <div className="w-full rounded-full h-1.5 bg-slate-100"><div className="h-full rounded-full bg-red-500" style={{ width: `${Math.max(hit_rate, 2)}%` }} /></div>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="text-xs text-slate-400 leading-relaxed">No significant gaps. Your brand surfaced on every tracked query.</p>
+                    )}
                   </div>
                 </div>
               </div>

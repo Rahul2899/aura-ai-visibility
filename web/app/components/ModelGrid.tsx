@@ -30,6 +30,16 @@ const PROVIDER_THEMES: Record<string, { label: string; badgeClass: string; dotCl
     badgeClass: "border-slate-300 bg-slate-100 text-slate-600",
     dotClass: "bg-slate-400",
   },
+  qwen: {
+    label: "Qwen",
+    badgeClass: "border-purple-500/20 bg-purple-500/5 text-purple-500",
+    dotClass: "bg-purple-500",
+  },
+  nvidia: {
+    label: "NVIDIA",
+    badgeClass: "border-green-600/20 bg-green-600/5 text-green-600",
+    dotClass: "bg-green-600",
+  },
   generic: {
     label: "AI Model",
     badgeClass: "border-slate-300 bg-slate-100 text-slate-500",

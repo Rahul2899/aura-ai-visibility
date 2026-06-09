@@ -32,6 +32,7 @@ async def extract_mentions(
     ]
 
     last_error: str = ""
+    last_raw: str = ""  # last raw model output, fed back on retry for self-correction
     for attempt in range(max_retries):
         if attempt > 0 and last_error:
             # Feed the validation error back so the model self-corrects
