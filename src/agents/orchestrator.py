@@ -449,12 +449,12 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     return (industry or "").strip() or "this product category"
 
 
-async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> list[str]:
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> tuple[list[str], str]:
     """Generate the probe set in two BLIND pools to avoid brand-shaped questions:
       - category questions: generated from the inferred CATEGORY ONLY (brand withheld)
         -> neutral, these are what get scored for true organic visibility.
       - brand-direct questions: generated WITH the brand context -> detail view only.
-    Custom questions (if any) run first."""
+    Custom questions (if any) run first. Returns (questions, inferred_category)."""
     name = context.get("name", "")
     industry = context.get("industry") or "unknown"
     web_context = context.get("web_context")
@@ -476,7 +476,8 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
 
     custom = [q.strip() for q in (custom_questions or []) if q.strip()]
     # custom first, then neutral category (scored), then brand-direct (detail). Cap at 12.
-    return (custom + category_qs + brand_direct)[:12]
+    # Also return the inferred category so the caller can persist it on the brand.
+    return (custom + category_qs + brand_direct)[:12], category
 
 
 ANALYSIS_PROMPT = """You are an AI brand visibility analyst. You receive a brand name and per-probe results (each question, and which AI models mentioned the brand). Report what was measured. You do NOT give marketing advice.
@@ -583,10 +584,19 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             raise BrandNotConfirmed(target_brand)
 
     emit("Gathered brand context. Generating questions…")
-    questions = await _generate_questions(bedrock, context, custom_questions)
+    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions)
     if not questions:
         log.error("no_questions_generated", brand_id=brand_id)
         return None
+
+    # Persist the inferred category as the brand's industry when the user didn't set
+    # one, so the dashboard can show it and future audits reuse it (stable + no
+    # re-inference). Never overwrite a user-provided industry. Guard against the
+    # generic fallback label so we don't store a non-answer.
+    if brand and (not brand.industry or not brand.industry.strip()) and inferred_category \
+            and inferred_category != "this product category":
+        brand.industry = inferred_category[:100]
+        emit(f"Category identified: {inferred_category}")
 
     if dry_run:
         for q in questions:
