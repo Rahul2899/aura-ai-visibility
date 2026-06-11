@@ -276,13 +276,14 @@ export default function ComparePage() {
             <p className="text-slate-500 text-xs mt-0.5 font-semibold">Pick brands to compare side-by-side, then run audits</p>
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          <div className="relative flex">
+            <Search className="absolute left-3 top-0 bottom-0 my-auto w-4 h-4 text-slate-400 pointer-events-none z-10" />
             <input
               value={brandSearch}
               onChange={e => setBrandSearch(e.target.value)}
               placeholder="Search brands, domains, or industries..."
-              className="w-full input-field pl-10 py-2.5 text-sm"
+              style={{ paddingLeft: "2.25rem" }}
+              className="w-full input-field py-2.5 text-sm"
               aria-label="Search brands to compare"
             />
           </div>
@@ -323,12 +324,13 @@ export default function ComparePage() {
                 className="md:col-span-3 input-field py-2.5 text-sm"
                 aria-label="New brand name"
               />
-              <div className="md:col-span-3 relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <div className="md:col-span-3 relative flex">
+                <Globe className="absolute left-3 top-0 bottom-0 my-auto w-4 h-4 text-slate-400 pointer-events-none z-10" />
                 <input value={newDomain} onChange={e => { setNewDomain(e.target.value); setAddError(null); }}
                   onKeyDown={e => e.key === "Enter" && addAndSelect()}
                   placeholder="Domain, e.g. lindt.com"
-                  className="w-full input-field pl-10 py-2.5 text-sm"
+                  style={{ paddingLeft: "2.25rem" }}
+                  className="w-full input-field py-2.5 text-sm"
                   aria-label="New brand domain"
                 />
               </div>

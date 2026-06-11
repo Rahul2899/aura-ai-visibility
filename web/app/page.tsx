@@ -386,11 +386,12 @@ export default function Home() {
                   </div>
                   {/* Search / actions bar */}
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <div className="relative flex">
+                      <Search className="absolute left-3 top-0 bottom-0 my-auto w-4 h-4 text-slate-400 pointer-events-none z-10" />
                       <input value={search} onChange={e => setSearch(e.target.value)}
                         placeholder="Search..."
-                        className="w-full sm:w-48 input-field pl-10 py-2 text-xs"
+                        style={{ paddingLeft: "2.25rem" }}
+                        className="w-full sm:w-48 input-field py-2 text-xs"
                         aria-label="Search brand names"
                       />
                     </div>

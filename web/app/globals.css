@@ -186,7 +186,12 @@ textarea:focus-visible {
   border: 1px solid var(--border-solid);
   color: var(--text);
   border-radius: 10px;
-  padding: 0.65rem 1.1rem;
+  /* Split into longhands (not the padding shorthand). The shorthand also sets
+     padding-left, which clobbers the left-padding override on icon inputs and lets
+     the placeholder slide under the icon. padding-inline keeps the same default look
+     while leaving the left padding overridable per-input. */
+  padding-block: 0.65rem;
+  padding-inline: 1.1rem;
   font-size: 0.875rem;
   font-family: inherit;
   outline: none;
