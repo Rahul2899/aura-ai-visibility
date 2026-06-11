@@ -280,7 +280,7 @@ export default function Home() {
             See how often AI models recommend your brand
           </h1>
           <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
-            When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models and measures your visibility, then shows you how to improve.
+            When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.
           </p>
           <div className="pt-1">
             <a href="#audit-form" className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
@@ -350,7 +350,7 @@ export default function Home() {
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
                   <p className="text-slate-500 text-xs leading-relaxed font-semibold">
-                    Aura runs about 10 industry-specific buyer questions across four leading AI models from Anthropic and Amazon to check whether your brand gets recommended.
+                    Aura runs about 10 industry-specific buyer questions across four model families to check whether your brand gets recommended.
                   </p>
                 </div>
 
@@ -360,7 +360,7 @@ export default function Home() {
                     { step: "01", title: "Configure", desc: "Add your brand name and domain in the sidebar." },
                     { step: "02", title: "Probing", desc: "Aura generates 10 search-intent prompt questions." },
                     { step: "03", title: "Evaluate", desc: "Bedrock agents query multiple models in parallel." },
-                    { step: "04", title: "Analyze", desc: "Calculate visibility indexes & get improvement plans." }
+                    { step: "04", title: "Analyze", desc: "Calculate visibility indexes and surface the exact gaps." }
                   ].map((s, idx) => (
                     <div key={idx} className="relative bg-slate-50 p-4.5 rounded-xl border border-slate-200 flex flex-col gap-2">
                       {idx < 3 && (
@@ -689,7 +689,7 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
             {[
               { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
-              { step: "2", title: "Four AI models", desc: "Each question runs across four leading models from Anthropic and Amazon in parallel." },
+              { step: "2", title: "Four AI models", desc: "Each question runs across four model families in parallel." },
               { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
             ].map(s => (
               <div key={s.step} className="text-center space-y-2">
