@@ -16,11 +16,16 @@ type JobState = {
   events?: { t: number; msg: string }[];
 };
 
+type PreviewState = { found: boolean; category: string; summary?: string };
+
 export default function AuditButton({ brandId }: { brandId: number }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [showCustom, setShowCustom] = useState(false);
   const [customText, setCustomText] = useState("");
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [editCategory, setEditCategory] = useState("");
   const started = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const customRef = useRef<HTMLDivElement | null>(null);
@@ -104,9 +109,35 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     }, 3000);
   }
 
-  async function startAudit() {
+  // Step 1: cheap preview (web search + category inference, no probes) so the user can
+  // confirm/correct the category before spending a full audit (e.g. "Fitness" could mean
+  // an app or a gym). Shows the confirm card; the actual audit runs from there.
+  async function runPreview() {
+    if (started.current || previewing) return;
+    setPreviewing(true);
+    setLog([]);
+    const sess = getSessionId();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
+    try {
+      const res = await fetch(`${API}/audit/brands/${brandId}/preview?session_id=${sess}`, { method: "POST", headers });
+      const data = res.ok ? await res.json() : { found: true, category: "", summary: "" };
+      setPreview(data);
+      setEditCategory(data.category ?? "");
+    } catch {
+      // If preview fails, don't block — let the user run the audit with no override.
+      setPreview({ found: true, category: "", summary: "" });
+      setEditCategory("");
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  // Step 2: run the actual audit, optionally with the user-confirmed category.
+  async function startAudit(categoryOverride?: string) {
     if (started.current) return;
     started.current = true;
+    setPreview(null);
     setJob({ status: "queued" });
     setLog(["Initializing audit session…"]);
 
@@ -121,10 +152,12 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     const stashed = JSON.parse(sessionStorage.getItem(`aura_cq_${brandId}`) || "[]");
     sessionStorage.removeItem(`aura_cq_${brandId}`);
     const custom_questions = stashed.length ? stashed : parseCustomQuestions();
+    const body: Record<string, unknown> = { custom_questions };
+    if (categoryOverride && categoryOverride.trim()) body.category = categoryOverride.trim();
     const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ custom_questions }),
+      body: JSON.stringify(body),
     });
     if (res.status === 503) {
       const data = await res.json().catch(() => ({}));
@@ -151,7 +184,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     const params = new URLSearchParams(window.location.search);
     if (params.get("autostart") === "1") {
       window.history.replaceState({}, "", window.location.pathname);
-      startAudit();
+      runPreview();  // show the confirm card first, then the user runs the audit
       return;
     }
     // Resume an audit that was in progress before a refresh.
@@ -214,8 +247,8 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       )}
 
       <button
-        onClick={startAudit}
-        disabled={running}
+        onClick={() => runPreview()}
+        disabled={running || previewing || !!preview}
         className="btn-primary flex items-center gap-2 text-sm relative overflow-hidden"
         aria-label={running ? "Running audit queries" : "Execute brand audit queries"}
       >
@@ -224,6 +257,11 @@ export default function AuditButton({ brandId }: { brandId: number }) {
             <Loader2 className="w-4 h-4 animate-spin text-white" />
             <span>Auditing…</span>
           </>
+        ) : previewing ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin text-white" />
+            <span>Checking…</span>
+          </>
         ) : (
           <>
             <Play className="w-4 h-4 text-white fill-white" />
@@ -231,6 +269,59 @@ export default function AuditButton({ brandId }: { brandId: number }) {
           </>
         )}
       </button>
+
+      {/* Confirm card: what Aura understood, before spending the audit. The user can
+          correct the category (e.g. change "fitness app" to "gym") so the scored
+          questions match what they actually mean. */}
+      {preview && !running && (
+        <div className="w-80 rounded-xl border border-slate-200 bg-white shadow-lg p-4 space-y-3 text-left">
+          {preview.found ? (
+            <>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Before we run the audit</p>
+                <p className="text-sm font-bold text-slate-800 mt-0.5">Category we&apos;ll test</p>
+                <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5">
+                  We score whether your brand surfaces for buyers asking about this category. Edit it if it&apos;s not quite right.
+                </p>
+              </div>
+              <input
+                value={editCategory}
+                onChange={e => setEditCategory(e.target.value)}
+                placeholder="e.g. premium chocolate, gym membership"
+                className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
+              />
+              <div className="flex items-center gap-2">
+                <button onClick={() => startAudit(editCategory)} className="btn-primary flex-1 flex items-center justify-center gap-1.5 text-xs">
+                  <Play className="w-3.5 h-3.5 text-white fill-white" /> Run audit
+                </button>
+                <button onClick={() => { setPreview(null); setLog([]); }} className="btn-ghost text-xs px-3">Cancel</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-slate-800">We couldn&apos;t confirm this brand</p>
+                  <p className="text-[11px] text-slate-500 font-medium leading-snug mt-0.5">
+                    Add the brand&apos;s website domain so we audit the right company, or set the category manually and run anyway.
+                  </p>
+                </div>
+              </div>
+              <input
+                value={editCategory}
+                onChange={e => setEditCategory(e.target.value)}
+                placeholder="Set category, e.g. gym membership"
+                className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
+              />
+              <div className="flex items-center gap-2">
+                <button onClick={() => startAudit(editCategory)} disabled={!editCategory.trim()} className="btn-primary flex-1 text-xs disabled:opacity-50">Run anyway</button>
+                <button onClick={() => { setPreview(null); setLog([]); }} className="btn-ghost text-xs px-3">Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Phase stepper — shows the user what stage the audit is in */}
       {(running || done) && (
