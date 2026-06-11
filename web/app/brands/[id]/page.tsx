@@ -10,7 +10,7 @@ import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
 import { getSessionId, getAdminKey } from "../../lib/session";
-import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2 } from "lucide-react";
+import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -175,6 +175,17 @@ export default function BrandPage() {
     visibility: ins.visibility_pct ?? 0,
   }));
 
+  // Competitor auto-suggest: same-category audited brands (excluding this one), top 3 by
+  // visibility. Derived from the compare list already loaded — no extra request.
+  const myCategory = brand.industry?.split("/")[0].trim().toLowerCase() ?? "";
+  const competitors = myCategory
+    ? compare
+        .filter((b: any) => b.id !== Number(id) && b.visibility_pct !== null &&
+          (b.industry?.split("/")[0].trim().toLowerCase() ?? "") === myCategory)
+        .sort((a: any, b: any) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0))
+        .slice(0, 3)
+    : [];
+
   return (
     <main className="min-h-screen animate-fade-in" style={{ background: "var(--bg)" }}>
       <header className="border-b px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between gap-2 sticky top-0 z-10 backdrop-blur-md"
@@ -258,6 +269,28 @@ export default function BrandPage() {
                 )}
               </div>
             </div>
+
+            {/* Competitor auto-suggest — one-click compare against same-category rivals */}
+            {competitors.length > 0 && (
+              <div className="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-slate-800 font-bold text-sm flex items-center gap-2">
+                    <GitCompare className="w-4 h-4 text-[var(--accent)]" />
+                    Compare {brand.name} against rivals
+                  </p>
+                  <p className="text-slate-400 text-xs mt-0.5 font-semibold">
+                    Same category{brand.industry ? ` · ${brand.industry.split("/")[0].trim()}` : ""} — see who AI recommends most.
+                  </p>
+                </div>
+                <Link
+                  href={`/compare?ids=${[Number(id), ...competitors.map((c: any) => c.id)].join(",")}`}
+                  className="btn-primary flex items-center justify-center gap-2 text-sm flex-shrink-0"
+                >
+                  <GitCompare className="w-4 h-4 text-white" />
+                  Compare vs {competitors.map((c: any) => c.name).join(", ")}
+                </Link>
+              </div>
+            )}
 
             {(() => {
               const findings = latest.key_findings?.length > 0 ? latest.key_findings : summaryToBullets(latest.summary);

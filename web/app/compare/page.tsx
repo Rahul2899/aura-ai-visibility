@@ -75,6 +75,16 @@ export default function ComparePage() {
         // guessing. Avoids confusing new users with a pre-filled comparison.
         if (Array.isArray(brands)) setAllBrands(brands);
         if (Array.isArray(industryList)) setIndustries(industryList);
+        // Allow deep-linking a preselection via ?ids=1,2,3 (used by the brand-page
+        // "compare against competitors" suggestions). Only keep ids that exist.
+        if (typeof window !== "undefined" && Array.isArray(brands)) {
+          const ids = new URLSearchParams(window.location.search).get("ids");
+          if (ids) {
+            const known = new Set(brands.map((b: { id: number }) => b.id));
+            const pick = ids.split(",").map(Number).filter(n => known.has(n));
+            if (pick.length) setSelected(pick);
+          }
+        }
       })
       .catch(() => []);
   }, []);
