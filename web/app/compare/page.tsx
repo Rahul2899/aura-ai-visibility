@@ -63,8 +63,11 @@ export default function ComparePage() {
 
   useEffect(() => {
     const sess = getSessionId();
+    // Send the admin header so an admin sees their own brands here too; without it the
+    // server falls back to the example-only scope (same bug the dashboard had).
+    const adminHdr: Record<string, string> = sess === "admin" ? { "X-Admin-Key": getAdminKey() } : {};
     Promise.all([
-      fetch(`${API}/brands/compare?session_id=${sess}`).then(r => r.json()),
+      fetch(`${API}/brands/compare?session_id=${sess}`, { headers: adminHdr }).then(r => r.json()),
       fetch(`${API}/brands/industries`).then(r => r.json()).catch(() => []),
     ])
       .then(([brands, industryList]) => {

@@ -21,7 +21,8 @@ import {
   Building2,
   RefreshCw,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Loader2
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -127,6 +128,76 @@ function ScoreChip({ pct }: { pct: number | null }) {
   );
 }
 
+// Shows audits that are still running server-side, so a page refresh never looks
+// like the audit was "lost". The brand page writes the running job_id to
+// localStorage (aura_audit_job_<brandId>); we read those, poll each job, and surface
+// a banner with live status + a link back to the live audit. Clears the key and asks
+// the dashboard to reload when a job finishes, so the new score appears.
+type ActiveJob = { brandId: number; jobId: string; status: string; progress: string };
+
+function ActiveAudits({ brands, onComplete }: { brands: BrandRow[]; onComplete: () => void }) {
+  const [jobs, setJobs] = useState<ActiveJob[]>([]);
+
+  useEffect(() => {
+    let stop = false;
+    async function tick() {
+      // Discover running audits from the localStorage keys the brand page writes.
+      const found: { brandId: number; jobId: string }[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const m = k?.match(/^aura_audit_job_(\d+)$/);
+        if (m) {
+          const jobId = localStorage.getItem(k!);
+          if (jobId) found.push({ brandId: Number(m[1]), jobId });
+        }
+      }
+      if (found.length === 0) { if (!stop) setJobs([]); return; }
+
+      const results = await Promise.all(found.map(async ({ brandId, jobId }) => {
+        try {
+          const r = await fetch(`${API}/audit/${jobId}`);
+          if (r.status === 404) { localStorage.removeItem(`aura_audit_job_${brandId}`); return null; }
+          const d = await r.json();
+          const status: string = d.status ?? "running";
+          if (status === "completed" || status === "failed" || status === "unconfirmed") {
+            localStorage.removeItem(`aura_audit_job_${brandId}`);
+            if (status === "completed") onComplete();  // refresh dashboard to show the new score
+            return null;
+          }
+          // Derive a light progress hint from the live event feed (e.g. "Probe 7").
+          const evs: { msg: string }[] = d.events ?? [];
+          const probe = [...evs].reverse().find(e => /Probe \d+|Asking|Generating|Searching|Scoring/i.test(e.msg));
+          return { brandId, jobId, status, progress: probe?.msg?.slice(0, 48) ?? "Starting…" } as ActiveJob;
+        } catch { return null; }
+      }));
+      if (!stop) setJobs(results.filter((j): j is ActiveJob => j !== null));
+    }
+    tick();
+    const iv = setInterval(tick, 2000);
+    return () => { stop = true; clearInterval(iv); };
+  }, [onComplete]);
+
+  if (jobs.length === 0) return null;
+  const nameOf = (id: number) => brands.find(b => b.id === id)?.name ?? `Brand #${id}`;
+
+  return (
+    <div className="space-y-2 mb-4">
+      {jobs.map(j => (
+        <div key={j.brandId} className="card px-4 py-3 flex items-center justify-between gap-3 border-[var(--accent)]/30" style={{ background: "var(--accent-dim)" }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <Loader2 className="w-4 h-4 text-[var(--accent)] animate-spin flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-800 truncate">Auditing {nameOf(j.brandId)}…</p>
+              <p className="text-xs text-slate-500 font-medium truncate">{j.progress}</p>
+            </div>
+          </div>
+          <Link href={`/brands/${j.brandId}`} className="btn-ghost text-xs font-bold flex-shrink-0">View</Link>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TrendPill({ v }: { v: number | null }) {
   if (v === null || v === 0) return <span className="text-slate-400 text-xs font-semibold px-2 py-1 bg-slate-100 rounded-lg border border-slate-200">—</span>;
   const up = v > 0;
@@ -162,7 +233,10 @@ export default function Home() {
       const sess = getSessionId();
       const adminHdr: Record<string, string> = sess === "admin" ? { "X-Admin-Key": getAdminKey() } : {};
       const [compareRes, limitRes, industriesRes] = await Promise.all([
-        fetch(`${API}/brands/compare?session_id=${sess}`),
+        // MUST send the admin header here too: without it the server can't verify admin
+        // and falls back to the example-only scope, so an admin's own brands vanish on
+        // refresh. (The key is computed above for limit-status; reuse it.)
+        fetch(`${API}/brands/compare?session_id=${sess}`, { headers: adminHdr }),
         fetch(`${API}/audit/limit-status?session_id=${sess}`, { headers: adminHdr }),
         fetch(`${API}/brands/industries`),
       ]);
@@ -288,6 +362,9 @@ export default function Home() {
             </a>
           </div>
         </section>
+
+        {/* In-progress audits (survive a refresh; the work continues server-side) */}
+        <ActiveAudits brands={brands} onComplete={load} />
 
         {/* KPI strip — single card, connected; stacks on mobile to avoid overflow */}
         {audited.length > 0 && (
