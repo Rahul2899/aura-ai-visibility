@@ -57,8 +57,8 @@ function exportPDF(brands: BrandRow[]) {
   <style>
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 40px; }
-    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0369a1; padding-bottom: 16px; margin-bottom: 24px; }
-    .brandmark { font-size: 22px; font-weight: 800; color: #0369a1; }
+    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #b8965a; padding-bottom: 16px; margin-bottom: 24px; }
+    .brandmark { font-size: 22px; font-weight: 800; color: #8c6d3f; letter-spacing: -0.02em; }
     .sub { color: #64748b; font-size: 13px; margin-top: 2px; }
     .date { color: #94a3b8; font-size: 12px; font-weight: 600; }
     .kpis { display: flex; gap: 14px; margin-bottom: 28px; }
@@ -347,10 +347,10 @@ export default function Home() {
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
         {/* Hero — tell a first-time visitor exactly what this is */}
         <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
-          <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
             AI Brand Visibility
           </span>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight leading-tight">
+          <h1 className="display text-3xl sm:text-5xl text-slate-900 leading-[1.05]">
             See how often AI models recommend your brand
           </h1>
           <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
@@ -422,7 +422,7 @@ export default function Home() {
               /* Beautiful Visual Onboarding Step Diagram for New Users */
               <div className="card p-8 space-y-8">
                 <div className="text-center max-w-lg mx-auto space-y-2.5">
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
                     How Aura works
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
@@ -443,7 +443,7 @@ export default function Home() {
                       {idx < 3 && (
                         <div className="hidden md:block absolute top-1/2 -right-2.5 -translate-y-1/2 z-10 w-5 h-0.5 bg-slate-300" />
                       )}
-                      <span className="text-sky-700 font-extrabold text-[10px] tabular mono uppercase">{s.step}</span>
+                      <span className="text-[var(--accent-2)] font-extrabold text-[10px] tabular mono uppercase">{s.step}</span>
                       <p className="font-extrabold text-sm text-slate-800">{s.title}</p>
                       <p className="text-slate-500 text-[11px] leading-normal font-semibold">{s.desc}</p>
                     </div>
@@ -451,7 +451,7 @@ export default function Home() {
                 </div>
 
                 <div className="text-center text-slate-500 text-xs font-semibold pt-1">
-                  Ready to test? Add your brand details in the <span className="text-sky-700 font-bold">Audit a Brand</span> panel to trigger your first run.
+                  Ready to test? Add your brand details in the <span className="text-[var(--accent-2)] font-bold">Audit a Brand</span> panel to trigger your first run.
                 </div>
               </div>
             ) : (
@@ -553,7 +553,7 @@ export default function Home() {
                           <div className="w-16 flex items-center justify-end gap-1">
                           {!b.is_example && (
                             <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
-                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
+                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all opacity-0 group-hover:opacity-100"
                               title="Re-run audit"
                               aria-label={`Re-run audit for ${b.name}`}>
                               <RefreshCw className="w-3.5 h-3.5" />
@@ -736,10 +736,10 @@ export default function Home() {
                   {pending.map(b => (
                     <div key={b.id} className="relative group">
                       <Link href={`/brands/${b.id}`} className="block">
-                        <div className="flex items-center justify-between p-3.5 pr-14 rounded-xl border border-dashed border-slate-300 hover:border-sky-300 hover:bg-sky-50 transition-all cursor-pointer">
+                        <div className="flex items-center justify-between p-3.5 pr-14 rounded-xl border border-dashed border-slate-300 hover:border-[var(--accent)]/40 hover:bg-[var(--accent-dim)] transition-all cursor-pointer">
                           <span className="text-slate-700 text-sm font-bold truncate max-w-28">{b.name}</span>
-                          <span className="text-sky-700 text-xs font-bold flex items-center gap-1">
-                            Run Audit <ArrowRight className="w-3.5 h-3.5 text-sky-700" />
+                          <span className="text-[var(--accent-2)] text-xs font-bold flex items-center gap-1">
+                            Run Audit <ArrowRight className="w-3.5 h-3.5 text-[var(--accent-2)]" />
                           </span>
                         </div>
                       </Link>

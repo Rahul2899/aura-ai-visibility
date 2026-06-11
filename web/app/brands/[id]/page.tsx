@@ -190,7 +190,7 @@ export default function BrandPage() {
                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
             )}
           </div>
-          <h1 className="font-bold text-base text-slate-900 tracking-tight truncate">{brand.name}</h1>
+          <h1 className="display text-lg text-slate-900 truncate">{brand.name}</h1>
           {brand.industry && <span className="hidden md:inline text-slate-400 text-sm font-semibold flex-shrink-0">{brand.industry.split("/")[0].trim()}</span>}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">

@@ -75,19 +75,19 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
         <svg viewBox="0 0 36 36" className="w-32 h-32 -rotate-90" aria-hidden="true">
           <defs>
             <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#10b981" />
-              <stop offset="100%" stopColor="#047857" />
+              <stop offset="0%" stopColor="#6a9a6e" />
+              <stop offset="100%" stopColor="#4e7a52" />
             </linearGradient>
             <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#f59e0b" />
-              <stop offset="100%" stopColor="#b45309" />
+              <stop offset="0%" stopColor="#c7a86c" />
+              <stop offset="100%" stopColor="#b8893f" />
             </linearGradient>
             <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ef4444" />
-              <stop offset="100%" stopColor="#b91c1c" />
+              <stop offset="0%" stopColor="#c66a62" />
+              <stop offset="100%" stopColor="#b5524a" />
             </linearGradient>
           </defs>
-          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e2e8f0" strokeWidth="2.5" />
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#ece6da" strokeWidth="2.5" />
           <circle cx="18" cy="18" r="15.9" fill="none" stroke={`url(#${gradientId})`} strokeWidth="3"
             strokeDasharray={`${displayed} ${100 - displayed}`} strokeLinecap="round"
             style={{ transition: "stroke-dasharray 0.05s ease" }}

@@ -10,27 +10,40 @@ describe("ComparisonChart Component", () => {
     { id: 4, name: "Brand D", visibility_pct: null }, // shouldn't render
   ];
 
-  it("renders brands sorted by visibility percentage descending", () => {
-    const { container } = render(<ComparisonChart brands={sampleBrands} />);
-
-    const barChart = screen.getByTestId("bar-chart");
-    expect(barChart).toBeInTheDocument();
-
-    const dataAttr = barChart.getAttribute("data-data");
-    expect(dataAttr).toBeTruthy();
-
-    const parsedData = JSON.parse(dataAttr || "[]");
-    expect(parsedData).toHaveLength(3);
-    // Sort verification
-    expect(parsedData[0].name).toBe("Brand A");
-    expect(parsedData[0].pct).toBe(80);
-    expect(parsedData[1].name).toBe("Brand B");
-    expect(parsedData[1].pct).toBe(50);
-    expect(parsedData[2].name).toBe("Brand C");
-    expect(parsedData[2].pct).toBe(20);
+  it("renders one row per brand with visibility data, sorted descending", () => {
+    render(<ComparisonChart brands={sampleBrands} />);
+    const rows = screen.getAllByTestId("comparison-row");
+    expect(rows).toHaveLength(3); // Brand D (null) excluded
+    // Names appear in descending-visibility order: A(80), B(50), C(20)
+    const names = rows.map(r => r.querySelector("[data-testid='comparison-name']")?.textContent);
+    expect(names).toEqual(["Brand A", "Brand B", "Brand C"]);
   });
 
-  it("should return null if no brands have visibility data", () => {
+  it("renders each bar fill width proportional to the score (real DOM, not a mock)", () => {
+    render(<ComparisonChart brands={sampleBrands} />);
+    const fills = screen.getAllByTestId("comparison-fill");
+    // Brand A is 80% -> the fill style carries width:80%. This is the regression guard:
+    // the old recharts bars rendered at width 0 (invisible).
+    expect(fills[0].style.width).toBe("80%");
+    expect(fills[1].style.width).toBe("50%");
+    expect(fills[2].style.width).toBe("20%");
+  });
+
+  it("shows the percentage label for each brand", () => {
+    render(<ComparisonChart brands={sampleBrands} />);
+    expect(screen.getByText("80%")).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(screen.getByText("20%")).toBeInTheDocument();
+  });
+
+  it("keeps a 0% bar visible as a sliver (never width 0)", () => {
+    render(<ComparisonChart brands={[{ id: 1, name: "Zero", visibility_pct: 0 }]} />);
+    const fill = screen.getByTestId("comparison-fill");
+    // minimum visible sliver so the "0%" reads as a real bar, not a missing one
+    expect(fill.style.width).toBe("2%");
+  });
+
+  it("returns null if no brands have visibility data", () => {
     const { container } = render(<ComparisonChart brands={[{ id: 1, name: "X", visibility_pct: null }]} />);
     expect(container.firstChild).toBeNull();
   });
