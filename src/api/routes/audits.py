@@ -9,7 +9,7 @@ from src.api.auth import is_admin, limit_key, require_owner_or_admin
 from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
-from src.agents.orchestrator import orchestrate, BrandNotConfirmed
+from src.agents.orchestrator import orchestrate, preview_audit, BrandNotConfirmed
 from src.models import AuditLimit, Brand
 
 log = structlog.get_logger()
@@ -17,6 +17,7 @@ log = structlog.get_logger()
 
 class AuditRequest(BaseModel):
     custom_questions: list[str] = []
+    category: str | None = None  # user-confirmed category from the preview step (optional)
 
 router = APIRouter(prefix="/audit")
 
@@ -39,7 +40,7 @@ async def _refund_audit_slot(rate_key: str | None):
         log.warning("audit_refund_failed", rate_key=rate_key, error=str(e))
 
 
-async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None):
+async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None, category: str | None = None):
     _jobs[job_id]["status"] = "running"
 
     def _emit(msg: str):
@@ -50,7 +51,7 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
 
     try:
         async with SessionLocal() as session:
-            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, on_event=_emit)
+            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, category_override=category, on_event=_emit)
         if insight:
             _jobs[job_id].update({
                 "status": "completed",
@@ -81,6 +82,28 @@ async def get_limit_status(request: Request, session_id: str = None, x_admin_key
         limit = await session.get(AuditLimit, key)
         count = limit.audit_count if limit else 0
     return {"limit_reached": count >= 2, "count": count, "max": 2}
+
+
+@router.post("/brands/{brand_id}/preview")
+async def preview_audit_route(
+    brand_id: int,
+    session_id: str = None,
+    x_admin_key: str = Header(None),
+):
+    """Cheap pre-audit step: web search + entity check + category inference, NO probes.
+    Lets the UI confirm which brand/category before spending a full audit. Not rate-limited
+    (it's cheap and the real audit charges)."""
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(status_code=404, detail="Brand not found.")
+        require_owner_or_admin(brand, session_id, x_admin_key)
+        try:
+            return await preview_audit(session, brand_id)
+        except Exception as e:
+            log.warning("preview_failed", brand_id=brand_id, error=str(e))
+            # Don't block the flow on a preview failure — let the user run the audit anyway.
+            return {"found": True, "category": "", "summary": "", "source": "none"}
 
 
 @router.post("/brands/{brand_id}")
@@ -154,20 +177,21 @@ async def start_audit(
         )
 
     custom_questions = [q.strip() for q in (body.custom_questions if body else []) if q.strip()][:5]
+    category = (body.category.strip()[:60] if body and body.category and body.category.strip() else None)
 
     global _job_counter
     _job_counter += 1
     job_id = f"job_{_job_counter}"
     _jobs[job_id] = {"status": "queued", "brand_id": brand_id, "events": []}
 
-    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None):
+    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None, cat: str | None):
         async with sem:
-            await _run_audit_job(jid, bid, cq, rate_key=rk)
+            await _run_audit_job(jid, bid, cq, rate_key=rk, category=cat)
 
     if sem is not None:
-        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key)
+        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key, category)
     else:
-        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key)
+        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key, category=category)
 
     return {"job_id": job_id, "status": "queued"}
 

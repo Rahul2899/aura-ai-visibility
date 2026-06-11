@@ -449,19 +449,24 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     return (industry or "").strip() or "this product category"
 
 
-async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> tuple[list[str], str]:
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None, category_override: str | None = None) -> tuple[list[str], str]:
     """Generate the probe set in two BLIND pools to avoid brand-shaped questions:
       - category questions: generated from the inferred CATEGORY ONLY (brand withheld)
         -> neutral, these are what get scored for true organic visibility.
       - brand-direct questions: generated WITH the brand context -> detail view only.
-    Custom questions (if any) run first. Returns (questions, inferred_category)."""
+    Custom questions (if any) run first. Returns (questions, inferred_category).
+    category_override: if the user confirmed/edited a category in the preview step, use
+    it verbatim and skip inference."""
     name = context.get("name", "")
     industry = context.get("industry") or "unknown"
     web_context = context.get("web_context")
     # Ground the neutral questions in the brand's REAL category (genre-independent),
     # derived from industry/web-context. The category label carries no brand name, so
     # the generator stays blind while still asking category-appropriate questions.
-    category = await _infer_category(bedrock, name, industry, web_context)
+    if category_override and category_override.strip():
+        category = category_override.strip()[:60]
+    else:
+        category = await _infer_category(bedrock, name, industry, web_context)
     log.info("category_inferred", brand=name, category=category)
     cat_user = (
         f"Category: {category}\n\n"
@@ -544,7 +549,36 @@ class BrandNotConfirmed(Exception):
     """Raised when we cannot confidently identify which company the user means."""
 
 
-async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, on_event=None) -> Insight | None:
+async def preview_audit(session: AsyncSession, brand_id: int) -> dict:
+    """Cheap pre-audit step: gather web context, run the entity check, and infer the
+    category — WITHOUT running any probes. Lets the UI show the user what Aura
+    understood (which brand, which category) and let them confirm/correct it before
+    spending a full audit. Returns:
+      {found: bool, category: str, summary: str, source: str}
+    found=False means we couldn't confidently identify the brand (ask for a domain)."""
+    bedrock = _bedrock_client()
+    brand = await session.get(Brand, brand_id)
+    if not brand:
+        raise ValueError(f"Brand {brand_id} not found")
+    name = brand.name
+
+    context = await _get_brand_context_tool(session, brand_id)
+    source = context.pop("_source", "none")
+    web_ctx = context.get("web_context", "")
+
+    # Same entity gate as orchestrate: a name-only search may be a different same-named
+    # company, so verify before we claim we found the right one.
+    found = True
+    if source != "homepage":
+        if not web_ctx or not await _verify_entity(bedrock, name, brand.industry, web_ctx):
+            found = False
+
+    category = await _infer_category(bedrock, name, brand.industry, web_ctx) if found else ""
+    summary = (web_ctx or "")[:240]
+    return {"found": found, "category": category, "summary": summary, "source": source}
+
+
+async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, category_override: str | None = None, on_event=None) -> Insight | None:
     """Two-phase audit: (A) a stronger model writes buyer questions grounded in live
     web context, (B) probes run in parallel across the model panel and a fast model
     writes the factual summary. Returns the saved Insight, or None on dry_run."""
@@ -584,7 +618,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             raise BrandNotConfirmed(target_brand)
 
     emit("Gathered brand context. Generating questions…")
-    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions)
+    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions, category_override=category_override)
     if not questions:
         log.error("no_questions_generated", brand_id=brand_id)
         return None

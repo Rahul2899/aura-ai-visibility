@@ -25,6 +25,22 @@ describe("AuditButton Component", () => {
     localStorage.clear();
   });
 
+  // The audit now has a preview/confirm step: clicking "Run Audit" first fetches a
+  // category preview and shows a confirm card; the real audit starts when the user
+  // clicks "Run audit" in that card. This helper queues the preview response, drives
+  // both clicks, and queues the caller-supplied audit-start response in between.
+  async function clickRunAndConfirm(fetchMock: jest.Mock, startResponse: unknown) {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ found: true, category: "note app", summary: "" }) });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Execute brand audit queries" }));
+    });
+    // Card is up; queue the start response, then click the card's "Run audit".
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => startResponse });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Run audit$/ }));
+    });
+  }
+
   it("handles the full audit lifecycle (start, polling, completed, reload)", async () => {
     // Mock the start and status endpoints
     const mockStartResponse = { job_id: "job_123", status: "queued" };
@@ -43,28 +59,20 @@ describe("AuditButton Component", () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock;
 
-    // 1. First call: Start audit (POST)
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockStartResponse,
-    });
-
     render(<AuditButton brandId={brandId} />);
 
     // Search by its accessible aria-label
     const button = screen.getByRole("button", { name: "Execute brand audit queries" });
     expect(button).toBeInTheDocument();
 
-    // Trigger Audit
-    await act(async () => {
-      fireEvent.click(button);
-    });
+    // Click Run Audit -> preview -> confirm card -> Run audit (starts the real audit)
+    await clickRunAndConfirm(fetchMock, mockStartResponse);
 
     // Button should show running aria-label state
     expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
     expect(screen.getByText(/Initializing audit session…/)).toBeInTheDocument();
 
-    // Verify first POST call was made
+    // Verify the audit-start POST was made (the second POST, after the preview)
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/audit/brands/${brandId}`), expect.objectContaining({
       method: "POST",
     }));
@@ -109,18 +117,10 @@ describe("AuditButton Component", () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock;
 
-    // Mock Start
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ job_id: "job_err" }),
-    });
-
     render(<AuditButton brandId={brandId} />);
-    const button = screen.getByRole("button", { name: "Execute brand audit queries" });
 
-    await act(async () => {
-      fireEvent.click(button);
-    });
+    // Run Audit -> preview -> confirm -> start
+    await clickRunAndConfirm(fetchMock, { job_id: "job_err" });
 
     // Mock Failed status check
     fetchMock.mockResolvedValueOnce({
@@ -137,16 +137,11 @@ describe("AuditButton Component", () => {
   });
 
   it("persists job_id to localStorage on start", async () => {
-    const fetchMock = jest.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ job_id: "job_persist", status: "queued" }),
-    });
+    const fetchMock = jest.fn();
     global.fetch = fetchMock;
 
     render(<AuditButton brandId={brandId} />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Execute brand audit queries" }));
-    });
+    await clickRunAndConfirm(fetchMock, { job_id: "job_persist", status: "queued" });
 
     expect(localStorage.getItem(`aura_audit_job_${brandId}`)).toBe("job_persist");
   });
