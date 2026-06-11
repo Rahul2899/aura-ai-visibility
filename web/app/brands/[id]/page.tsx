@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
-import AuditButton from "./AuditButton";
+import AuditButton, { type JobState } from "./AuditButton";
+import AuditLiveScan from "./AuditLiveScan";
 import DeleteInsightButton from "./DeleteInsightButton";
 import ProbeDetail from "./ProbeDetail";
 import ScoreRing from "./ScoreRing";
@@ -53,6 +54,9 @@ export default function BrandPage() {
   // same localStorage job key AuditButton uses, so it works whether the audit was
   // triggered via autostart or the "Run Audit" button. Drives the centered progress UI.
   const [auditActive, setAuditActive] = useState(false);
+  // Live job state lifted from AuditButton so the scan renders in-flow in the body.
+  const [liveJob, setLiveJob] = useState<JobState | null>(null);
+  const onJobChange = useCallback((j: JobState | null) => setLiveJob(j), []);
   useEffect(() => {
     // Drive the centered progress panel off the live job key only. AuditButton
     // removes that key on completion OR failure, so this clears correctly. We must
@@ -217,40 +221,60 @@ export default function BrandPage() {
               <span className="hidden sm:inline">{shareLabel}</span>
             </button>
           )}
-          <AuditButton brandId={Number(id)} brandName={brand.name} isExample={brand.is_example} />
+          <AuditButton brandId={Number(id)} brandName={brand.name} isExample={brand.is_example} onJobChange={onJobChange} />
         </div>
       </header>
 
       <div className="max-w-5xl mx-auto px-5 sm:px-6 py-8 space-y-6">
-        {!latest ? (
+        {auditActive ? (
+          /* Live audit — the scan instrument is the body, in-flow (not a floating panel) */
+          <div className="flex flex-col items-center gap-5 py-6">
+            <AuditLiveScan
+              brandName={brand.name}
+              probeCount={liveJob?.probe_count ?? 0}
+              total={10}
+              status={liveJob?.status ?? "running"}
+              events={liveJob?.events ?? []}
+            />
+            {/* Phase stepper under the scan */}
+            <div className="w-[min(92vw,640px)] flex items-center gap-1.5">
+              {[
+                { key: "questions", label: "Questions" },
+                { key: "probing", label: "Probing" },
+                { key: "analyzing", label: "Analyzing" },
+              ].map((p, idx) => {
+                const probes = liveJob?.probe_count ?? 0;
+                const phase = probes > 0 ? 2 : 1;
+                const active = idx + 1 <= phase;
+                return (
+                  <div key={p.key} className="flex-1 flex flex-col items-center gap-1">
+                    <div className={`w-full h-1 rounded-full transition-colors ${active ? "bg-[var(--accent)]" : "bg-slate-200"}`} />
+                    <span className={`text-[9px] font-bold uppercase tracking-wide ${active ? "text-[var(--accent)]" : "text-slate-300"}`}>{p.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto text-center leading-relaxed">
+              This page refreshes automatically when the audit finishes (about 1 to 2 minutes).
+            </p>
+          </div>
+        ) : !latest ? (
           <div className="card p-16 text-center" style={{ borderStyle: "dashed" }}>
-            {auditActive ? (
-              <div className="space-y-5 max-w-xl mx-auto">
-                <div className="flex items-center justify-center gap-2.5">
-                  <span className="live-dot" />
-                  <p className="text-slate-900 font-bold text-xl">Auditing {brand.name}…</p>
-                </div>
-                <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto leading-relaxed">
-                  Asking real buyer questions across 4 AI models and measuring how often {brand.name} gets recommended. Live progress is in the panel above. This page refreshes when done (about 1 to 2 minutes).
+            <div className="space-y-5 max-w-md mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--accent-dim)] flex items-center justify-center mx-auto">
+                <Sparkles className="w-7 h-7 text-[var(--accent)]" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
+                <p className="text-slate-500 text-sm font-semibold leading-relaxed">
+                  We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show the exact questions and models where it appears.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-5 max-w-md mx-auto">
-                <div className="w-14 h-14 rounded-2xl bg-[var(--accent-dim)] flex items-center justify-center mx-auto">
-                  <Sparkles className="w-7 h-7 text-[var(--accent)]" />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
-                  <p className="text-slate-500 text-sm font-semibold leading-relaxed">
-                    We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show the exact questions and models where it appears.
-                  </p>
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
-                  <ArrowUp className="w-4 h-4 rotate-45" />
-                  Click &quot;Run Audit&quot; in the top-right to begin
-                </div>
+              <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
+                <ArrowUp className="w-4 h-4 rotate-45" />
+                Click &quot;Run Audit&quot; in the top-right to begin
               </div>
-            )}
+            </div>
           </div>
         ) : (
           <div className="space-y-6">

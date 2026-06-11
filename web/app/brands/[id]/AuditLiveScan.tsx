@@ -23,7 +23,12 @@ export default function AuditLiveScan({ brandName, probeCount, total, status, ev
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [events.length]);
 
-  const establishing = status === "queued" || probeCount === 0;
+  // The instrument animates the whole time the job is live — the radar sweep and the
+  // model satellites must keep moving even before the first probe resolves (otherwise it
+  // looks frozen at "0%" during the Questions phase). `noData` only controls whether we
+  // show the "establishing…" text vs the streaming event feed; it does NOT freeze motion.
+  const live = status === "queued" || status === "running" || status === "probing";
+  const noData = probeCount === 0 && events.length === 0;
   const lit = Math.max(0, Math.min(probeCount, total));   // never exceed total
 
   // Place `total` probe nodes evenly around the outer ring.
@@ -87,18 +92,19 @@ export default function AuditLiveScan({ brandName, probeCount, total, status, ev
             <line x1="4" y1="50" x2="96" y2="50" stroke="var(--border-2-solid)" strokeWidth="0.4" />
             <line x1="50" y1="4" x2="50" y2="96" stroke="var(--border-2-solid)" strokeWidth="0.4" />
 
-            {/* sweeping scan line — only animates while running */}
-            {!establishing && (
+            {/* sweeping scan line — spins the entire time the job is live, even before
+                the first probe resolves, so the instrument never looks frozen. */}
+            {live && (
               <g className="scan-sweep" style={{ transformOrigin: "50px 50px" }}>
                 <path d="M50 50 L96 50 A46 46 0 0 1 82.5 82.5 Z" fill="url(#sweepGrad)" />
               </g>
             )}
 
-            {/* model satellites */}
+            {/* model satellites — pulse while live */}
             {satellites.map(s => (
               <circle key={s.i} cx={s.cx} cy={s.cy} r="2.4"
-                fill="var(--accent-2)" opacity={establishing ? 0.25 : 0.85}
-                className={establishing ? "" : "scan-pulse"} />
+                fill="var(--accent-2)" opacity={live ? 0.85 : 0.25}
+                className={live ? "scan-pulse" : ""} />
             ))}
 
             {/* probe nodes */}
@@ -125,7 +131,7 @@ export default function AuditLiveScan({ brandName, probeCount, total, status, ev
 
         {/* Intercepted-feed log — verbatim backend events */}
         <div className="flex-1 min-w-0 w-full">
-          {establishing ? (
+          {noData ? (
             <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--text-2)" }}>
               <Globe className="w-4 h-4 animate-spin text-[var(--accent)]" style={{ animationDuration: "2.5s" }} />
               Establishing connection to AI models…

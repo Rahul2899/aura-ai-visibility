@@ -68,10 +68,9 @@ describe("AuditButton Component", () => {
     // Click Run Audit -> preview -> confirm card -> Run audit (starts the real audit)
     await clickRunAndConfirm(fetchMock, mockStartResponse);
 
-    // Button should show running aria-label state
+    // Button should show running aria-label state. (The live scan instrument now renders
+    // in the brand-page body via onJobChange, not inside this component.)
     expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
-    // While running, the live scan instrument is the feedback the user sees.
-    expect(screen.getByText(/Scanning AI models/i)).toBeInTheDocument();
 
     // Verify the audit-start POST was made (the second POST, after the preview)
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/audit/brands/${brandId}`), expect.objectContaining({
@@ -89,9 +88,9 @@ describe("AuditButton Component", () => {
       jest.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByText(/Searching the web for brand context…/)).toBeInTheDocument();
-    // The scan's live counter reflects the real probe count from the job.
-    expect(screen.getByText(/3\s*\/\s*10 probes/)).toBeInTheDocument();
+    // The live event feed + probe counter now render in the brand-page scan (fed via
+    // onJobChange), not in this component. Here we just confirm the audit is still running.
+    expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
 
     // 3. Mock Third call: Poll status (GET - completed)
     fetchMock.mockResolvedValueOnce({
@@ -157,8 +156,8 @@ describe("AuditButton Component", () => {
     global.fetch = fetchMock;
 
     render(<AuditButton brandId={brandId} />);
-    // Resuming an in-progress audit immediately shows the live scan instrument.
-    expect(screen.getByText(/Scanning AI models/i)).toBeInTheDocument();
+    // Resuming an in-progress audit immediately shows the running button state.
+    expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
 
     await act(async () => {
       jest.advanceTimersByTime(3000);

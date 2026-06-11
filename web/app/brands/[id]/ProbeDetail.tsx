@@ -36,6 +36,57 @@ function prettyModel(model: string) {
   return base.replace(/-v\d.*$/, "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// Render markdown-style inline bold (**x**) as <strong>, with brand highlighting kept.
+// Text-only (no dangerouslySetInnerHTML) so model output can never inject markup.
+function inline(text: string, brand: string, keyBase: string) {
+  const segs = text.split(/(\*\*[^*]+\*\*)/g);
+  return segs.map((seg, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(seg)) {
+      return <strong key={`${keyBase}-b${i}`} style={{ color: "var(--text)", fontWeight: 700 }}>{highlight(seg.slice(2, -2), brand)}</strong>;
+    }
+    return <span key={`${keyBase}-t${i}`}>{highlight(seg, brand)}</span>;
+  });
+}
+
+// Turn a flat LLM answer into clean structured blocks: headings, numbered/bulleted
+// list items, and paragraphs — instead of one squashed wall of text.
+export function StructuredAnswer({ text, brand }: { text: string; brand: string }) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length <= 1) {
+    // Single block: still render with inline bold + highlight.
+    return <p className="text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>{inline(text, brand, "p0")}</p>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {lines.map((line, i) => {
+        const num = line.match(/^(\d+)[.)]\s+(.*)$/);          // "1. Greenhouse — ..."
+        const bullet = line.match(/^[-*•]\s+(.*)$/);            // "- Lever ..."
+        const heading = line.match(/^#{1,4}\s+(.*)$/) || (line.endsWith(":") && line.length < 60 ? [line, line.slice(0, -1)] : null);
+        if (num) {
+          return (
+            <div key={i} className="flex gap-2 text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
+              <span className="font-bold tabular flex-shrink-0" style={{ color: "var(--accent)" }}>{num[1]}.</span>
+              <span>{inline(num[2], brand, `n${i}`)}</span>
+            </div>
+          );
+        }
+        if (bullet) {
+          return (
+            <div key={i} className="flex gap-2 text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
+              <span className="flex-shrink-0" style={{ color: "var(--accent)" }}>•</span>
+              <span>{inline(bullet[1], brand, `b${i}`)}</span>
+            </div>
+          );
+        }
+        if (heading) {
+          return <p key={i} className="text-[11px] font-bold uppercase tracking-wide pt-1" style={{ color: "var(--text)" }}>{inline(heading[1], brand, `h${i}`)}</p>;
+        }
+        return <p key={i} className="text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>{inline(line, brand, `p${i}`)}</p>;
+      })}
+    </div>
+  );
+}
+
 function AnswerReveal({ group, brandName }: { group: ResponseGroup; brandName: string }) {
   const [show, setShow] = useState(false);
   if (!group.responses.length) return null;
@@ -60,9 +111,7 @@ function AnswerReveal({ group, brandName }: { group: ResponseGroup; brandName: s
                   {r.brand_found ? "✓ mentioned" : "not mentioned"}
                 </span>
               </div>
-              <p className="text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
-                {highlight(r.response_text, brandName)}
-              </p>
+              <StructuredAnswer text={r.response_text} brand={brandName} />
             </div>
           ))}
         </div>

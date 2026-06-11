@@ -4,11 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { reloadPage } from "../../lib/navigation";
 import { getSessionId, getAdminKey } from "../../lib/session";
 import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus } from "lucide-react";
-import AuditLiveScan from "./AuditLiveScan";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type JobState = {
+export type JobState = {
   status: string;
   probe_count?: number;
   visibility_pct?: number;
@@ -19,7 +18,7 @@ type JobState = {
 
 type PreviewState = { found: boolean; category: string; summary?: string };
 
-export default function AuditButton({ brandId, brandName = "this brand", isExample = false }: { brandId: number; brandName?: string; isExample?: boolean }) {
+export default function AuditButton({ brandId, brandName = "this brand", isExample = false, onJobChange }: { brandId: number; brandName?: string; isExample?: boolean; onJobChange?: (job: JobState | null) => void }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [showCustom, setShowCustom] = useState(false);
@@ -199,6 +198,10 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Report live job state up so the brand page can render the scan in-flow in its body
+  // (instead of this component floating a fixed panel over the page).
+  useEffect(() => { onJobChange?.(job); }, [job, onJobChange]);
+
   const running = job?.status === "running" || job?.status === "queued";
   const done = job?.status === "completed";
   const failed = job?.status === "failed";
@@ -333,40 +336,8 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
       )}
       </div>
 
-      {/* Phase stepper — shows the user what stage the audit is in */}
-      {(running || done) && (
-        <div className="w-80 flex items-center gap-1.5">
-          {[
-            { key: "questions", label: "Questions" },
-            { key: "probing", label: "Probing" },
-            { key: "analyzing", label: "Analyzing" },
-          ].map((p, idx) => {
-            const probes = job?.probe_count ?? 0;
-            const phase = done ? 3 : probes > 0 ? 2 : 1; // 1=questions,2=probing,3=done
-            const active = idx + 1 <= phase;
-            return (
-              <div key={p.key} className="flex-1 flex flex-col items-center gap-1">
-                <div className={`w-full h-1 rounded-full transition-colors ${active ? "bg-[var(--accent)]" : "bg-slate-200"}`} />
-                <span className={`text-[9px] font-bold uppercase tracking-wide ${active ? "text-[var(--accent)]" : "text-slate-300"}`}>{p.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* While the audit RUNS, the live spy/scan instrument is the star of the show —
-          anchored top-center so it dominates. It binds to the real job state only. */}
-      {running && (
-        <div className="fixed left-1/2 -translate-x-1/2 top-20 z-40">
-          <AuditLiveScan
-            brandName={brandName}
-            probeCount={job?.probe_count ?? 0}
-            total={10}
-            status={job?.status ?? "running"}
-            events={job?.events ?? []}
-          />
-        </div>
-      )}
+      {/* The live spy/scan + phase stepper now render IN-FLOW in the brand-page body
+          (via onJobChange), not floating from this header button. */}
 
       {/* Once finished/failed, fall back to a compact inline log so the result and
           any error are legible. (The scan is only for the live moment.) */}
