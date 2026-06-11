@@ -3,38 +3,40 @@
 @tailwind utilities;
 
 :root {
-  /* Base — soft neutral (not harsh white, not dark) */
-  --bg: #eef0f3;
-  --surface: rgba(255, 255, 255, 0.95);
+  /* Base — warm ivory. Never pure #fff: a faint warmth is what separates an
+     "expensive editorial" surface from a "cheap AI-generated white site". */
+  --bg: #faf8f3;
+  --surface: rgba(255, 255, 255, 0.96);
   --surface-solid: #ffffff;
-  --surface-2: rgba(244, 246, 248, 0.9);
-  --surface-2-solid: #f4f6f8;
-  --border: rgba(15, 23, 42, 0.08);
-  --border-solid: #d8dde3;
-  --border-2: rgba(15, 23, 42, 0.14);
-  --border-2-solid: #c4cad2;
+  --surface-2: rgba(244, 241, 234, 0.92);
+  --surface-2-solid: #f4f1ea;
+  --border: rgba(26, 23, 20, 0.08);
+  --border-solid: #e9e3d6;
+  --border-2: rgba(26, 23, 20, 0.14);
+  --border-2-solid: #d6cdbc;
 
-  /* Text */
-  --text: #0f172a;
-  --text-2: #64748b;
-  --text-3: #94a3b8;
+  /* Text — warm near-black ink, not cold slate. */
+  --text: #1a1714;
+  --text-2: #6b6358;
+  --text-3: #9a9080;
 
-  /* Accent — Professional Blue (B2B SaaS) */
-  --accent: #0369a1;
-  --accent-hover: #0284c7;
-  --accent-dim: rgba(3, 105, 161, 0.08);
-  --accent-glow: rgba(3, 105, 161, 0.18);
+  /* Accent — brushed brass. Reads as luxury/gold without being garish. */
+  --accent: #b8965a;
+  --accent-hover: #c7a86c;
+  --accent-2: #8c6d3f;
+  --accent-dim: rgba(184, 150, 90, 0.10);
+  --accent-glow: rgba(184, 150, 90, 0.28);
 
-  /* Semantic color tones */
-  --green: #059669;
-  --green-dim: rgba(5, 150, 105, 0.08);
-  --green-glow: rgba(5, 150, 105, 0.15);
-  --amber: #d97706;
-  --amber-dim: rgba(217, 119, 6, 0.08);
-  --amber-glow: rgba(217, 119, 6, 0.15);
-  --red: #dc2626;
-  --red-dim: rgba(220, 38, 38, 0.08);
-  --red-glow: rgba(220, 38, 38, 0.15);
+  /* Semantic tones — warm, muted, expensive (no neon). */
+  --green: #4e7a52;
+  --green-dim: rgba(78, 122, 82, 0.10);
+  --green-glow: rgba(78, 122, 82, 0.18);
+  --amber: #b8893f;
+  --amber-dim: rgba(184, 137, 63, 0.10);
+  --amber-glow: rgba(184, 137, 63, 0.18);
+  --red: #b5524a;
+  --red-dim: rgba(181, 82, 74, 0.10);
+  --red-glow: rgba(181, 82, 74, 0.18);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,6 +54,21 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Tactile paper grain — a ~3% noise overlay over the ivory bg. Makes the surface
+   feel printed/physical rather than a flat digital white. pointer-events:none so it
+   never intercepts clicks; fixed so it doesn't scroll. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* App content sits above the grain. */
+body > * { position: relative; z-index: 1; }
 
 /* Custom scrollbars that feel integrated */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -98,25 +115,25 @@ textarea:focus-visible {
 .score-moderate { color: var(--amber); text-shadow: 0 0 12px var(--amber-glow); }
 .score-weak { color: var(--red); text-shadow: 0 0 12px var(--red-glow); }
 
-/* Premium Card Elements */
+/* Premium Card Elements — warm white on ivory, soft layered warm shadow. */
 .card {
   background: #ffffff;
-  border: 1px solid #dde1e8;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border: 1px solid #ece6da;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(60, 50, 35, 0.04), 0 6px 20px -8px rgba(60, 50, 35, 0.10);
+  transition: border-color 0.15s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 .card:hover {
-  border-color: #c8cfd8;
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
+  border-color: #e0d8c7;
+  box-shadow: 0 2px 4px rgba(60, 50, 35, 0.05), 0 12px 32px -10px rgba(60, 50, 35, 0.16);
 }
 
-/* CTA card — draws the eye to the primary action */
+/* CTA card — brass border + warm glow draws the eye to the primary action */
 .card-cta {
   background: #ffffff;
   border: 1.5px solid var(--accent);
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(3, 105, 161, 0.1), 0 1px 3px rgba(15, 23, 42, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px var(--accent-glow), 0 1px 3px rgba(60, 50, 35, 0.06);
 }
 
 .card-elevated {
@@ -128,7 +145,7 @@ textarea:focus-visible {
 
 /* Premium buttons with micro-animations & spring-like click scaling */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+  background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent-2) 100%);
   color: #ffffff;
   border: none;
   border-radius: 10px;
@@ -138,13 +155,13 @@ textarea:focus-visible {
   letter-spacing: -0.01em;
   cursor: pointer;
   box-shadow: 0 4px 14px var(--accent-glow);
-  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
-              transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), 
+  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
               filter 0.2s ease;
 }
 .btn-primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  box-shadow: 0 6px 20px rgba(3, 105, 161, 0.3);
+  filter: brightness(1.06);
+  box-shadow: 0 6px 22px var(--accent-glow);
   transform: translateY(-1px);
 }
 .btn-primary:active:not(:disabled) {
@@ -219,8 +236,22 @@ select.input-field option {
   color: var(--text);
 }
 
-/* Typography headers */
+/* Typography headers — serif display face for editorial-luxury headlines. */
 h1, h2, h3, h4 {
-  letter-spacing: -0.03em;
-  font-weight: 700;
+  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--text);
 }
+
+/* Hero display — larger optical size, tighter tracking. */
+.display {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
+/* Brass text accent helper. */
+.text-accent { color: var(--accent); }
+.text-accent-2 { color: var(--accent-2); }
