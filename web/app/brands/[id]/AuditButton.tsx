@@ -19,7 +19,7 @@ type JobState = {
 
 type PreviewState = { found: boolean; category: string; summary?: string };
 
-export default function AuditButton({ brandId, brandName = "this brand" }: { brandId: number; brandName?: string }) {
+export default function AuditButton({ brandId, brandName = "this brand", isExample = false }: { brandId: number; brandName?: string; isExample?: boolean }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [showCustom, setShowCustom] = useState(false);
@@ -250,9 +250,10 @@ export default function AuditButton({ brandId, brandName = "this brand" }: { bra
       <div className="relative">
       <button
         onClick={() => runPreview()}
-        disabled={running || previewing || !!preview}
+        disabled={running || previewing || !!preview || isExample}
+        title={isExample ? "Demo brands are read-only. Add your own brand to run a fresh audit." : undefined}
         className="btn-primary flex items-center gap-2 text-sm relative overflow-hidden"
-        aria-label={running ? "Running audit queries" : "Execute brand audit queries"}
+        aria-label={running ? "Running audit queries" : isExample ? "Demo brand — auditing disabled" : "Execute brand audit queries"}
       >
         {running ? (
           <>
@@ -263,6 +264,11 @@ export default function AuditButton({ brandId, brandName = "this brand" }: { bra
           <>
             <Loader2 className="w-4 h-4 animate-spin text-white" />
             <span>Checking…</span>
+          </>
+        ) : isExample ? (
+          <>
+            <Play className="w-4 h-4 text-white fill-white" />
+            <span>Demo (read-only)</span>
           </>
         ) : (
           <>
@@ -400,10 +406,18 @@ export default function AuditButton({ brandId, brandName = "this brand" }: { bra
             })}
           </div>
 
-          {/* Too-busy notice */}
-          {failed && job?.error?.includes("busy") && (
-            <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Server is busy. Wait 2-3 minutes and try again.
+          {/* Always surface WHY an audit failed — the server sends a specific reason
+              (limit reached, example brand is read-only, already running, busy). Show
+              it plainly instead of leaving the user staring at a bare "Failed". */}
+          {failed && job?.error && (
+            <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 leading-relaxed">
+              {job.error.includes("busy")
+                ? "The server is busy right now. Wait 2-3 minutes and try again."
+                : job.error.includes("example")
+                ? "This is a preloaded demo brand and can't be re-audited. Add your own brand from the dashboard to run a fresh audit."
+                : job.error.includes("limit")
+                ? "You've reached the free audit limit (2 audits). Please check back later."
+                : job.error}
             </p>
           )}
         </div>

@@ -145,8 +145,12 @@ function ScoreChip({ pct }: { pct: number | null }) {
 // the dashboard to reload when a job finishes, so the new score appears.
 type ActiveJob = { brandId: number; jobId: string; status: string; progress: string };
 
-function ActiveAudits({ brands, onComplete }: { brands: BrandRow[]; onComplete: () => void }) {
+function ActiveAudits({ brands, onComplete, onActiveChange }: { brands: BrandRow[]; onComplete: () => void; onActiveChange?: (ids: number[]) => void }) {
   const [jobs, setJobs] = useState<ActiveJob[]>([]);
+
+  // Report the set of in-progress brand ids up to the dashboard so it can move those
+  // brands out of the "Unaudited" list into an "Audit in progress" state.
+  useEffect(() => { onActiveChange?.(jobs.map(j => j.brandId)); }, [jobs, onActiveChange]);
 
   useEffect(() => {
     let stop = false;
@@ -236,6 +240,12 @@ export default function Home() {
   const [limitReached, setLimitReached] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
   const [admin, setAdmin] = useState(false);
+  // Brand ids with an audit running right now (reported by ActiveAudits). Used to move
+  // them out of the "Unaudited" list and show an "Audit in progress" state instead.
+  const [activeIds, setActiveIds] = useState<number[]>([]);
+  const onActiveChange = useCallback((ids: number[]) => {
+    setActiveIds(prev => (prev.length === ids.length && prev.every(x => ids.includes(x)) ? prev : ids));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -328,7 +338,10 @@ export default function Home() {
   const sortedAudited = [...allAudited].sort((a, b) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0));
   const avg = allAudited.length ? allAudited.reduce((s, b) => s + (b.visibility_pct ?? 0), 0) / allAudited.length : null;
   const best = sortedAudited[0] ?? null;
-  const pending = filtered.filter(b => b.visibility_pct === null);
+  const notScored = filtered.filter(b => b.visibility_pct === null);
+  // A brand with a running audit is "in progress", not "unaudited".
+  const inProgress = notScored.filter(b => activeIds.includes(b.id));
+  const pending = notScored.filter(b => !activeIds.includes(b.id));
 
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
@@ -377,7 +390,7 @@ export default function Home() {
         </Reveal>
 
         {/* In-progress audits (survive a refresh; the work continues server-side) */}
-        <ActiveAudits brands={brands} onComplete={load} />
+        <ActiveAudits brands={brands} onComplete={load} onActiveChange={onActiveChange} />
 
         {/* KPI strip — single card, connected; stacks on mobile to avoid overflow */}
         {audited.length > 0 && (
@@ -737,6 +750,33 @@ export default function Home() {
                 </button>
               </form>
             </div>
+
+            {/* Audits running right now — these are NOT "unaudited", they're mid-run. */}
+            {inProgress.length > 0 && (
+              <div className="card p-6 space-y-4">
+                <div>
+                  <h2 className="text-slate-900 font-bold text-sm flex items-center gap-2">
+                    <span className="live-dot" /> Audit in progress
+                  </h2>
+                  <p className="text-slate-500 text-xs mt-0.5 font-semibold">Running across 4 AI models — this finishes on its own</p>
+                </div>
+                <div className="flex flex-col gap-2.5">
+                  {inProgress.map(b => (
+                    <Link key={b.id} href={`/brands/${b.id}`} className="block">
+                      <div className="flex items-center justify-between p-3.5 rounded-xl border border-[var(--accent)]/30 transition-all cursor-pointer" style={{ background: "var(--accent-dim)" }}>
+                        <span className="text-slate-800 text-sm font-bold truncate max-w-32 flex items-center gap-2">
+                          <Loader2 className="w-3.5 h-3.5 text-[var(--accent)] animate-spin flex-shrink-0" />
+                          {b.name}
+                        </span>
+                        <span className="text-[var(--accent-2)] text-xs font-bold flex items-center gap-1">
+                          Auditing… <ArrowRight className="w-3.5 h-3.5 text-[var(--accent-2)]" />
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Pending / Unaudited Brands list */}
             {pending.length > 0 && (
