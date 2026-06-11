@@ -43,6 +43,7 @@ export default function BrandPage() {
   const [probePerf, setProbePerf] = useState<{ top: any[]; bottom: any[] }>({ top: [], bottom: [] });
   const [compare, setCompare] = useState<any[]>([]);
   const [probeDetail, setProbeDetail] = useState<{ probes: any[]; audit_date: string | null }>({ probes: [], audit_date: null });
+  const [probeResponses, setProbeResponses] = useState<any[]>([]);
   const [darkMatter, setDarkMatter] = useState<any>({ dark_matter_count: 0, total_probes: 0, probes: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export default function BrandPage() {
     const qs = sessQs();
     const hdrs = apiHeaders();
     try {
-      const [brandRes, insightsRes, biasRes, perfRes, compareRes, detailRes, darkRes] = await Promise.all([
+      const [brandRes, insightsRes, biasRes, perfRes, compareRes, detailRes, darkRes, respRes] = await Promise.all([
         fetch(`${API}/brands/${id}?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/insights?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/model-bias?${qs}`, { headers: hdrs }),
@@ -100,6 +101,7 @@ export default function BrandPage() {
         fetch(`${API}/brands/compare?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/probe-detail?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/dark-matter?${qs}`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/probe-responses?${qs}`, { headers: hdrs }),
       ]);
       if (brandRes.status === 403) { setError("You do not have access to this brand."); return; }
       if (brandRes.status === 404) { setError("Brand not found."); return; }
@@ -111,6 +113,7 @@ export default function BrandPage() {
       if (compareRes.ok) setCompare(await compareRes.json());
       if (detailRes.ok) setProbeDetail(await detailRes.json());
       if (darkRes.ok) setDarkMatter(await darkRes.json());
+      if (respRes.ok) { const d = await respRes.json(); setProbeResponses(Array.isArray(d.probes) ? d.probes : []); }
     } catch {
       setError("Network error loading brand data.");
     } finally {
@@ -328,7 +331,8 @@ export default function BrandPage() {
             )}
 
             {probeDetail.probes.length > 0 && (
-              <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date} />
+              <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date}
+                responses={probeResponses} brandName={brand.name} />
             )}
 
             {darkMatter.dark_matter_count > 0 && (

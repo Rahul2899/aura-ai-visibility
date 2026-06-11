@@ -8,10 +8,11 @@ from datetime import datetime
 
 import boto3
 import httpx
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import Brand, Insight, ProbePerformance, ApiCall
+from src.models import Brand, Insight, ProbePerformance, ApiCall, Prompt, Run, Mention, SentimentEnum
 from src.llm.client import OpenRouterClient, DEFAULT_MODELS
 from src.llm.bedrock_client import BedrockClient, BEDROCK_MODELS
 from src.llm.extractor import extract_mentions
@@ -241,18 +242,24 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
     try:
         result = await client.complete(model=model, messages=[{"role": "user", "content": prompt_text}])
         extraction = await extract_mentions(client, model, result["text"])
-        mentioned = any(_brand_matches(target_brand, m.brand_name) for m in extraction.mentions)
+        target_mention = next((m for m in extraction.mentions if _brand_matches(target_brand, m.brand_name)), None)
+        mentioned = target_mention is not None
         if on_event:
             on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
         return {
             "model": model, "provider": provider, "mentioned": mentioned, "failed": False,
             "tokens_in": result.get("tokens_in") or 0, "tokens_out": result.get("tokens_out") or 0,
             "latency_ms": result["latency_ms"],
+            # Keep the verbatim answer + brand position so the audit can persist them for
+            # the "what each AI actually said" reveal (proves results aren't hallucinated).
+            "response_text": result["text"],
+            "brand_position": target_mention.position if target_mention else None,
         }
     except Exception as e:
         log.warning("probe_model_error", model=model, error=str(e))
         return {"model": model, "provider": provider, "mentioned": False, "failed": True,
-                "tokens_in": 0, "tokens_out": 0, "latency_ms": 0}
+                "tokens_in": 0, "tokens_out": 0, "latency_ms": 0,
+                "response_text": None, "brand_position": None}
     finally:
         if hasattr(client, "close"):
             await client.close()
@@ -316,6 +323,41 @@ def _persist_probe(session: AsyncSession, brand_id: int, prompt_text: str, resul
         "breakdown": {m: "yes" if v else "no" for m, v in model_breakdown.items()},
     }
     return summary, stmt
+
+
+async def _persist_responses(session: AsyncSession, brand_id: int, prompt_text: str, results: list[dict]) -> None:
+    """Persist the verbatim model answers for one question so the brand page can show the
+    "what each AI actually said" reveal. Writes a Prompt + one Run per succeeded model +
+    a target-brand Mention when found. Best-effort: a duplicate content_hash (same answer
+    seen twice across audits) is skipped rather than aborting the whole audit. Called
+    serially on the shared session, matching the rest of the persistence path."""
+    prompt = Prompt(brand_id=brand_id, text=prompt_text)
+    session.add(prompt)
+    await session.flush()  # need prompt.id for the runs
+
+    for r in results:
+        if r.get("failed") or not r.get("response_text"):
+            continue
+        text = r["response_text"]
+        # Unique per (prompt, model, answer); dedupes if the identical answer recurs.
+        chash = hashlib.sha256(f"{prompt.id}|{r['model']}|{text}".encode()).hexdigest()
+        existing = await session.scalar(select(Run.id).where(Run.content_hash == chash))
+        if existing:
+            continue
+        run = Run(
+            prompt_id=prompt.id, model=r["model"], provider=r["provider"],
+            response_text=text, latency_ms=r.get("latency_ms") or 0,
+            tokens_in=r.get("tokens_in") or 0, tokens_out=r.get("tokens_out") or 0,
+            content_hash=chash,
+        )
+        session.add(run)
+        await session.flush()  # need run.id for the mention
+        if r.get("mentioned"):
+            session.add(Mention(
+                run_id=run.id, brand_name="(target)",
+                position=r.get("brand_position") or 0,
+                sentiment=SentimentEnum.neutral, is_target_brand=True, cited_urls=[],
+            ))
 
 
 async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
@@ -657,6 +699,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
         is_brand_direct = _brand_matches(target_brand, q)
         result, upsert_stmt = _persist_probe(session, brand_id, q, raw)
         await session.execute(upsert_stmt)  # serial: one session, one task
+        await _persist_responses(session, brand_id, q, raw)  # verbatim answers for the reveal
         if not is_brand_direct:
             for model, mentioned in result.get("breakdown", {}).items():
                 model_hits.setdefault(model, []).append(mentioned == "yes")
