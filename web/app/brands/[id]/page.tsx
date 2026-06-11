@@ -202,7 +202,7 @@ export default function BrandPage() {
               <span className="hidden sm:inline">{shareLabel}</span>
             </button>
           )}
-          <AuditButton brandId={Number(id)} />
+          <AuditButton brandId={Number(id)} brandName={brand.name} />
         </div>
       </header>
 

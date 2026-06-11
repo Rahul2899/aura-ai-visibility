@@ -110,6 +110,18 @@ textarea:focus-visible {
   animation: pulse 1.8s ease infinite;
 }
 
+/* Live audit scan — radar sweep + satellite pulse (bound to a running job only) */
+@keyframes scanSweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.scan-sweep { animation: scanSweep 2.4s linear infinite; }
+@keyframes scanPulse {
+  0%, 100% { opacity: 0.4; r: 2.2; }
+  50%       { opacity: 1; }
+}
+.scan-pulse { animation: scanPulse 1.6s ease-in-out infinite; }
+
 /* Score visual categories */
 .score-strong { color: var(--green); text-shadow: 0 0 12px var(--green-glow); }
 .score-moderate { color: var(--amber); text-shadow: 0 0 12px var(--amber-glow); }

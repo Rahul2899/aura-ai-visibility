@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { reloadPage } from "../../lib/navigation";
 import { getSessionId, getAdminKey } from "../../lib/session";
 import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus } from "lucide-react";
+import AuditLiveScan from "./AuditLiveScan";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -18,7 +19,7 @@ type JobState = {
 
 type PreviewState = { found: boolean; category: string; summary?: string };
 
-export default function AuditButton({ brandId }: { brandId: number }) {
+export default function AuditButton({ brandId, brandName = "this brand" }: { brandId: number; brandName?: string }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [showCustom, setShowCustom] = useState(false);
@@ -347,35 +348,42 @@ export default function AuditButton({ brandId }: { brandId: number }) {
         </div>
       )}
 
-      {/* High-fidelity Live Log Console — while running it anchors as a prominent
-          fixed panel (top-center on desktop) so the "live search" is the star of the
-          show, not a cramped corner widget. Falls back to inline once complete. */}
-      {log.length > 0 && (
+      {/* While the audit RUNS, the live spy/scan instrument is the star of the show —
+          anchored top-center so it dominates. It binds to the real job state only. */}
+      {running && (
+        <div className="fixed left-1/2 -translate-x-1/2 top-20 z-40">
+          <AuditLiveScan
+            brandName={brandName}
+            probeCount={job?.probe_count ?? 0}
+            total={10}
+            status={job?.status ?? "running"}
+            events={job?.events ?? []}
+          />
+        </div>
+      )}
+
+      {/* Once finished/failed, fall back to a compact inline log so the result and
+          any error are legible. (The scan is only for the live moment.) */}
+      {!running && log.length > 0 && (
         <div
-          className={`rounded-xl p-4 text-left border shadow-2xl transition-all duration-300 ${
-            running
-              ? "fixed left-1/2 -translate-x-1/2 top-20 z-40 w-[min(92vw,640px)]"
-              : "w-80"
-          }`}
-          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+          className="rounded-xl p-4 text-left border shadow-lg w-80"
+          style={{ background: "var(--surface-solid)", borderColor: "var(--border-solid)" }}
           role="log"
           aria-live="polite"
         >
-          <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-900">
+          <div className="flex items-center justify-between mb-3 pb-2 border-b" style={{ borderColor: "var(--border-solid)" }}>
             <div className="flex items-center gap-2">
               <Terminal className="w-3.5 h-3.5 text-[var(--accent)]" />
-              <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Audit Logs</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--text-3)" }}>Audit Log</span>
             </div>
             <div className="flex items-center gap-2">
-              {running && <span className="live-dot" />}
-              {done && <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Complete</span>}
-              {failed && <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Failed</span>}
-              {unconfirmed && <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brand unconfirmed</span>}
-              {running && <span className="text-[10px] text-zinc-500 font-bold tabular">{job?.probe_count ?? 0}/10 queries</span>}
+              {done && <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: "var(--green)" }}><CheckCircle2 className="w-3 h-3" /> Complete</span>}
+              {failed && <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: "var(--red)" }}><AlertCircle className="w-3 h-3" /> Failed</span>}
+              {unconfirmed && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brand unconfirmed</span>}
             </div>
           </div>
 
-          <div className={`flex flex-col gap-1.5 overflow-y-auto pr-1 ${running ? "max-h-64" : "max-h-36"}`}>
+          <div className="flex flex-col gap-1.5 overflow-y-auto pr-1 max-h-36">
             {log.map((line, i) => {
               const isDone = line.startsWith("✓");
               const isFail = line.startsWith("✗");
@@ -394,19 +402,9 @@ export default function AuditButton({ brandId }: { brandId: number }) {
 
           {/* Too-busy notice */}
           {failed && job?.error?.includes("busy") && (
-            <p className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               Server is busy. Wait 2-3 minutes and try again.
             </p>
-          )}
-
-          {/* Progress bar with glowing details */}
-          {running && (
-            <div className="mt-3.5 w-full rounded-full h-1 bg-zinc-950 overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <div
-                className="h-full rounded-full bg-[var(--accent)] transition-all duration-1000 ease-out"
-                style={{ width: `${Math.min((job?.probe_count ?? 0) * 10, 95)}%` }}
-              />
-            </div>
           )}
         </div>
       )}
