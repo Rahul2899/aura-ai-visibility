@@ -1,6 +1,33 @@
 import "@testing-library/jest-dom";
 import React from "react";
 
+// jsdom doesn't implement matchMedia; our motion components (MagneticCursor, Reveal,
+// CountUp) feature-detect pointer/reduced-motion through it. Mock it as "no fancy
+// motion" so they render their final/static state in tests.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  window.matchMedia = (query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
+
+// jsdom lacks IntersectionObserver (used by Reveal/CountUp). Provide a stub that
+// immediately reports the element as visible so animated content renders in tests.
+if (!global.IntersectionObserver) {
+  global.IntersectionObserver = class {
+    constructor(cb) { this._cb = cb; }
+    observe(el) { this._cb([{ isIntersecting: true, target: el }]); }
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // Mock recharts to avoid JSDOM SVG dimensions and layout rendering errors
 jest.mock("recharts", () => {
   return {

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
+import MagneticCursor from "./components/MagneticCursor";
+import { Reveal, CountUp } from "./components/Reveal";
 import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey, exitAdmin } from "./lib/session";
 import { createBrand, validateBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
@@ -330,6 +332,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
+      <MagneticCursor />
       {/* Top nav */}
       <header className="border-b px-5 sm:px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md" style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.95)" }}>
         <Link href="/" className="flex items-center gap-3 group">
@@ -354,22 +357,24 @@ export default function Home() {
 
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
         {/* Hero — tell a first-time visitor exactly what this is */}
-        <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
-          <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
-            AI Brand Visibility
-          </span>
-          <h1 className="display text-3xl sm:text-5xl text-slate-900 leading-[1.05]">
-            See how often AI models recommend your brand
-          </h1>
-          <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
-            When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.
-          </p>
-          <div className="pt-1">
-            <a href="#audit-form" className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
-              <Plus className="w-4 h-4 text-white" /> Audit your brand
-            </a>
-          </div>
-        </section>
+        <Reveal>
+          <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
+              AI Brand Visibility
+            </span>
+            <h1 className="display text-3xl sm:text-5xl text-slate-900 leading-[1.05]">
+              See how often AI models recommend your brand
+            </h1>
+            <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
+              When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.
+            </p>
+            <div className="pt-1">
+              <a href="#audit-form" data-magnetic className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
+                <Plus className="w-4 h-4 text-white" /> Audit your brand
+              </a>
+            </div>
+          </section>
+        </Reveal>
 
         {/* In-progress audits (survive a refresh; the work continues server-side) */}
         <ActiveAudits brands={brands} onComplete={load} />
@@ -379,14 +384,14 @@ export default function Home() {
           <div className="card overflow-hidden">
             <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
               {[
-                { label: "Brands Tracked", value: brands.length.toString(), sub: `${audited.length} audited` },
-                { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", sub: "across all brands", colored: avg },
-                { label: "Market Leader", value: best?.name ?? "—", sub: best ? `${best.visibility_pct?.toFixed(0)}% visibility` : "", colored: best?.visibility_pct },
-              ].map(({ label, value, sub, colored }) => (
+                { label: "Brands Tracked", value: brands.length.toString(), count: brands.length, suffix: "", sub: `${audited.length} audited` },
+                { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", count: avg !== null ? avg : null, suffix: "%", sub: "across all brands", colored: avg },
+                { label: "Market Leader", value: best?.name ?? "—", count: null, suffix: "", sub: best ? `${best.visibility_pct?.toFixed(0)}% visibility` : "", colored: best?.visibility_pct },
+              ].map(({ label, value, count, suffix, sub, colored }) => (
                 <div key={label} className="px-6 py-4">
                   <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
                   <p className={`text-2xl sm:text-3xl font-bold mt-1 tracking-tight truncate ${colored !== undefined && colored !== null ? (colored >= 60 ? "text-emerald-600" : colored >= 35 ? "text-amber-600" : "text-red-600") : "text-slate-900"}`}>
-                    {value}
+                    {count !== null && count !== undefined ? <CountUp value={count} suffix={suffix} /> : value}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>
                 </div>
@@ -770,22 +775,26 @@ export default function Home() {
         </div>
 
         {/* How it works — methodology / trust layer */}
-        <section className="card p-6 sm:p-8">
-          <h2 className="font-bold text-lg text-slate-900 text-center">How Aura measures AI visibility</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
-            {[
-              { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
-              { step: "2", title: "Four AI models", desc: "Each question runs across four model families in parallel." },
-              { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
-            ].map(s => (
-              <div key={s.step} className="text-center space-y-2">
-                <div className="w-8 h-8 rounded-full bg-[var(--accent-dim)] text-[var(--accent)] font-bold text-sm flex items-center justify-center mx-auto">{s.step}</div>
-                <p className="font-bold text-sm text-slate-800">{s.title}</p>
-                <p className="text-slate-500 text-xs font-medium leading-relaxed">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        <Reveal>
+          <section className="card p-6 sm:p-8">
+            <h2 className="font-bold text-lg text-slate-900 text-center">How Aura measures AI visibility</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
+              {[
+                { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
+                { step: "2", title: "Four AI models", desc: "Each question runs across four model families in parallel." },
+                { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
+              ].map((s, i) => (
+                <Reveal key={s.step} delay={i * 120}>
+                  <div className="text-center space-y-2">
+                    <div className="w-8 h-8 rounded-full bg-[var(--accent-dim)] text-[var(--accent)] font-bold text-sm flex items-center justify-center mx-auto">{s.step}</div>
+                    <p className="font-bold text-sm text-slate-800">{s.title}</p>
+                    <p className="text-slate-500 text-xs font-medium leading-relaxed">{s.desc}</p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+          </section>
+        </Reveal>
       </div>
 
       <footer className="border-t mt-8 py-6 px-6 text-center" style={{ borderColor: "var(--border-solid)" }}>
