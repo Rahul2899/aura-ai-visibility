@@ -18,12 +18,15 @@ import {
   Loader2,
   ArrowDown,
   ArrowUp,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  Globe,
+  Search
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type BrandOption = { id: number; name: string; visibility_pct: number | null; industry?: string | null };
+type BrandOption = { id: number; name: string; domain?: string | null; visibility_pct: number | null; industry?: string | null };
 type ModelBias = { model: string; visibility_pct: number };
 type BrandData = {
   id: number;
@@ -46,7 +49,12 @@ const PROVIDER_DOT_CLASSES: Record<string, string> = {
 export default function ComparePage() {
   const [allBrands, setAllBrands] = useState<BrandOption[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
+  const [brandSearch, setBrandSearch] = useState("");
   const [newName, setNewName] = useState("");
+  const [newDomain, setNewDomain] = useState("");
+  const [newIndustry, setNewIndustry] = useState("");
+  const [industryOther, setIndustryOther] = useState(false);
+  const [industries, setIndustries] = useState<string[]>([]);
   const [addError, setAddError] = useState<string | null>(null);
   const [data, setData] = useState<BrandData[]>([]);
   const [jobs, setJobs] = useState<Record<number, JobState>>({});
@@ -55,12 +63,15 @@ export default function ComparePage() {
 
   useEffect(() => {
     const sess = getSessionId();
-    fetch(`${API}/brands/compare?session_id=${sess}`)
-      .then(r => r.json())
-      .then(brands => {
+    Promise.all([
+      fetch(`${API}/brands/compare?session_id=${sess}`).then(r => r.json()),
+      fetch(`${API}/brands/industries`).then(r => r.json()).catch(() => []),
+    ])
+      .then(([brands, industryList]) => {
         // Open empty: let the user choose which brands to compare rather than
         // guessing. Avoids confusing new users with a pre-filled comparison.
         if (Array.isArray(brands)) setAllBrands(brands);
+        if (Array.isArray(industryList)) setIndustries(industryList);
       })
       .catch(() => []);
   }, []);
@@ -70,14 +81,23 @@ export default function ComparePage() {
   }
 
   async function addAndSelect() {
-    const validationError = validateBrand(newName);
+    const validationError = validateBrand(newName, newDomain);
     if (validationError) { setAddError(validationError); return; }
     setAddError(null);
-    const result = await createBrand({ name: newName });
+    const result = await createBrand({ name: newName, domain: newDomain, industry: newIndustry });
     if (!result.ok) { setAddError(result.error); return; }
-    setAllBrands(prev => [...prev, { id: result.id, name: result.name, visibility_pct: null }]);
+    setAllBrands(prev => [...prev, {
+      id: result.id,
+      name: result.name,
+      domain: newDomain.trim() || null,
+      industry: newIndustry || null,
+      visibility_pct: null
+    }]);
     setSelected(prev => [...prev, result.id]);
     setNewName("");
+    setNewDomain("");
+    setNewIndustry("");
+    setIndustryOther(false);
   }
 
   const loadComparison = useCallback(async () => {
@@ -221,6 +241,14 @@ export default function ComparePage() {
     selected.map(id => allBrands.find(b => b.id === id)?.industry?.split("/")[0].trim()).filter(Boolean)
   ));
   const crossCategory = selectedIndustries.length > 1;
+  const visibleBrands = brandSearch.trim()
+    ? allBrands.filter(b => {
+        const q = brandSearch.toLowerCase();
+        return b.name.toLowerCase().includes(q)
+          || (b.domain ?? "").toLowerCase().includes(q)
+          || (b.industry ?? "").toLowerCase().includes(q);
+      })
+    : allBrands;
 
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
@@ -248,8 +276,20 @@ export default function ComparePage() {
             <p className="text-slate-500 text-xs mt-0.5 font-semibold">Pick brands to compare side-by-side, then run audits</p>
           </div>
 
+          <div className="relative flex">
+            <Search className="absolute left-3 top-0 bottom-0 my-auto w-4 h-4 text-slate-400 pointer-events-none z-10" />
+            <input
+              value={brandSearch}
+              onChange={e => setBrandSearch(e.target.value)}
+              placeholder="Search brands, domains, or industries..."
+              style={{ paddingLeft: "2.25rem" }}
+              className="w-full input-field py-2.5 text-sm"
+              aria-label="Search brands to compare"
+            />
+          </div>
+
           <div className="flex flex-wrap gap-2.5">
-            {allBrands.map(b => {
+            {visibleBrands.map(b => {
               const isSelected = selected.includes(b.id);
               return (
                 <button
@@ -272,16 +312,69 @@ export default function ComparePage() {
               );
             })}
           </div>
+          {visibleBrands.length === 0 && (
+            <p className="text-xs font-semibold text-slate-400">No brands match your search.</p>
+          )}
 
           <div className="space-y-1.5">
-            <div className="flex gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
               <input value={newName} onChange={e => { setNewName(e.target.value); setAddError(null); }}
                 onKeyDown={e => e.key === "Enter" && addAndSelect()}
-                placeholder="Or type a new brand to add..."
-                className="flex-1 input-field py-2.5 text-sm"
+                placeholder="Brand name"
+                className="md:col-span-3 input-field py-2.5 text-sm"
                 aria-label="New brand name"
               />
-              <button onClick={addAndSelect} disabled={!newName.trim()} className="btn-primary flex items-center gap-1.5 text-xs font-semibold">
+              <div className="md:col-span-3 relative flex">
+                <Globe className="absolute left-3 top-0 bottom-0 my-auto w-4 h-4 text-slate-400 pointer-events-none z-10" />
+                <input value={newDomain} onChange={e => { setNewDomain(e.target.value); setAddError(null); }}
+                  onKeyDown={e => e.key === "Enter" && addAndSelect()}
+                  placeholder="Domain, e.g. lindt.com"
+                  style={{ paddingLeft: "2.25rem" }}
+                  className="w-full input-field py-2.5 text-sm"
+                  aria-label="New brand domain"
+                />
+              </div>
+              <div className="md:col-span-4">
+                {industryOther ? (
+                  <div className="relative">
+                    <input
+                      value={newIndustry}
+                      onChange={e => setNewIndustry(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && addAndSelect()}
+                      placeholder="Type industry"
+                      className="w-full input-field py-2.5 text-sm pr-14"
+                      aria-label="New brand custom industry"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setIndustryOther(false); setNewIndustry(""); }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 hover:text-[var(--accent)]"
+                    >
+                      List
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <select
+                      value={newIndustry}
+                      onChange={e => {
+                        if (e.target.value === "__other__") { setIndustryOther(true); setNewIndustry(""); }
+                        else setNewIndustry(e.target.value);
+                      }}
+                      className="w-full input-field py-2.5 text-sm appearance-none pr-8"
+                      aria-label="New brand industry"
+                    >
+                      <option value="">Industry</option>
+                      {industries.map(ind => (
+                        <option key={ind} value={ind}>{ind}</option>
+                      ))}
+                      <option value="__other__">Other (type your own)</option>
+                    </select>
+                    <ChevronDown className="absolute right-2.5 top-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  </div>
+                )}
+              </div>
+              <button onClick={addAndSelect} disabled={!newName.trim()} className="md:col-span-2 btn-primary flex items-center justify-center gap-1.5 text-xs font-semibold">
                 <Plus className="w-4 h-4 text-slate-900" /> Add
               </button>
             </div>
@@ -590,7 +683,7 @@ export default function ComparePage() {
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-2">Why do scores change between runs?</h3>
               <p className="text-slate-400 text-xs leading-relaxed font-semibold">
-                Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic, so the same question can get a different answer each time. Early runs with model failures (rate limits, wrong IDs) score lower because failed models count as 0%. Later runs with all models working give accurate measurements.
+                Each audit generates fresh probe questions and queries models independently. AI responses are non-deterministic, so the same question can get a different answer each time. Failed model calls are excluded from the denominator, so the score reflects completed measurements rather than treating outages as non-mentions.
               </p>
             </div>
             <div>

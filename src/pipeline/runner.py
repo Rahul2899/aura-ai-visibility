@@ -60,8 +60,8 @@ async def _run_single(
         provider=provider,
         response_text=result["text"],
         latency_ms=result["latency_ms"],
-        tokens_in=result["tokens_in"],
-        tokens_out=result["tokens_out"],
+        tokens_in=result.get("tokens_in") or 0,
+        tokens_out=result.get("tokens_out") or 0,
         content_hash=chash,
     )
     session.add(run)
@@ -70,8 +70,8 @@ async def _run_single(
         model=model,
         provider=provider,
         latency_ms=result["latency_ms"],
-        tokens_in=result["tokens_in"],
-        tokens_out=result["tokens_out"],
+        tokens_in=result.get("tokens_in") or 0,
+        tokens_out=result.get("tokens_out") or 0,
     )
     session.add(api_log)
     await session.flush()

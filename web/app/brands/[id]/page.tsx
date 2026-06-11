@@ -227,7 +227,7 @@ export default function BrandPage() {
                 <div className="space-y-2">
                   <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
                   <p className="text-slate-500 text-sm font-semibold leading-relaxed">
-                    We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show you exactly where to improve.
+                    We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show the exact questions and models where it appears.
                   </p>
                 </div>
                 <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
@@ -336,7 +336,7 @@ export default function BrandPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <p className="text-slate-800 font-bold text-sm">Where you&apos;re invisible <span className="text-slate-400 font-medium">· Dark Matter</span></p>
-                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand. Pure opportunity.</p>
+                    <p className="text-slate-400 text-xs mt-0.5">Questions where no AI model mentioned your brand.</p>
                   </div>
                   <span className="text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
                     {darkMatter.dark_matter_count} of {darkMatter.total_probes} questions

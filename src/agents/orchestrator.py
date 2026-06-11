@@ -246,7 +246,7 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
         return {
             "model": model, "provider": provider, "mentioned": mentioned, "failed": False,
-            "tokens_in": result.get("tokens_in", 0), "tokens_out": result.get("tokens_out", 0),
+            "tokens_in": result.get("tokens_in") or 0, "tokens_out": result.get("tokens_out") or 0,
             "latency_ms": result["latency_ms"],
         }
     except Exception as e:
@@ -281,9 +281,11 @@ def _persist_probe(session: AsyncSession, brand_id: int, prompt_text: str, resul
     upsert statement serially, so the async session is only ever touched from one task."""
     model_breakdown = {}
     for r in results:
-        cost = (r["tokens_in"] * 0.00025 + r["tokens_out"] * 0.00125) / 1000 if r["provider"] == "bedrock" else 0.0
+        tokens_in = r.get("tokens_in") or 0
+        tokens_out = r.get("tokens_out") or 0
+        cost = (tokens_in * 0.00025 + tokens_out * 0.00125) / 1000 if r["provider"] == "bedrock" else 0.0
         session.add(ApiCall(model=r["model"], provider=r["provider"], latency_ms=r["latency_ms"],
-                            tokens_in=r["tokens_in"], tokens_out=r["tokens_out"], cost_usd=cost))
+                            tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost))
         if not r["failed"]:
             model_breakdown[r["model"]] = r["mentioned"]
 
@@ -341,13 +343,20 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
 # around that brand's strengths, and the brand would surface ~100% of the time. By
 # describing only the CATEGORY and a buyer scenario, the questions are neutral, so the
 # score reflects whether the brand genuinely surfaces on its own.
-CATEGORY_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when deciding what product or service to buy in a category. You are NOT told any specific brand on purpose — write questions a neutral shopper would ask about the CATEGORY itself.
+CATEGORY_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when deciding what to buy in a SPECIFIC category. You are deliberately NOT told any brand name — write questions a neutral shopper asks about the category itself.
 
-You receive an industry/category and (optionally) typical buyer context. Write 8 questions that:
-- Describe a real need and ask what to use ("best applicant tracking system for a 200-person company", "which CRM is easiest for a small sales team to set up").
-- Cover varied buyer scenarios: company size, budget, specific feature needs, integrations, ease of use, industry fit.
-- Do NOT favor any particular vendor or describe one product's exact niche. Stay generic to the category.
-- Read like a real person: one sentence, under 25 words, plain commas/periods only (never dashes).
+You are given a CATEGORY. Every question MUST fit a real buyer of THAT category. Match the category's own world — its products, buyers, and the way people actually shop for it. Do not import vocabulary from unrelated categories (a chocolate buyer never asks about integrations or team size; a hotel buyer never asks about pricing tiers per seat).
+
+Examples of how questions track the category (note how each stays in its own world):
+- Category "premium chocolate": "what is the best dark chocolate brand for a gift", "which chocolate has the smoothest texture and richest flavor", "what is a good affordable chocolate for everyday snacking".
+- Category "electric SUV": "what is the best electric SUV for a family with a long commute", "which electric SUV has the longest range under 60k".
+- Category "project management software": "best project management tool for a remote team of 20", "which PM tool is easiest to set up without training".
+- Category "boutique hotel, Lisbon": "best boutique hotel in Lisbon for a romantic weekend", "which Lisbon hotel is walkable to the old town and under 200 a night".
+
+Write 8 questions that:
+- Fit the given category exactly, covering varied real buyer scenarios (use case, budget, who it's for, a key quality that matters in THIS category, occasion or context).
+- Do NOT name or hint at any specific brand. Stay generic to the category.
+- Read like a real person: one sentence, under 25 words, plain commas and periods only (never dashes).
 
 Return ONLY JSON: {"questions": ["...", "..."]}. No prose, no markdown fences."""
 
@@ -389,19 +398,76 @@ async def _gen_questions_from_prompt(bedrock, system_prompt: str, user_text: str
     return [q for q in generated if isinstance(q, str) and q.strip()][:n_hint]
 
 
-async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> list[str]:
+def _strip_brand(text: str, brand: str) -> str:
+    """Remove the brand name from text so we can feed real category context to the
+    BLIND category generator without leaking which brand we're measuring."""
+    if not text or not brand:
+        return text or ""
+    return re.sub(rf"(?<![a-z0-9]){re.escape(brand)}(?![a-z0-9])", "the brand", text, flags=re.IGNORECASE)
+
+
+async def _infer_category(bedrock, name: str, industry: str | None, web_context: str | None) -> str:
+    """Derive a short, concrete category label (e.g. "premium chocolate / confectionery",
+    "electric SUV", "applicant tracking software") used to GROUND the neutral question
+    generator. This is what makes Aura genre-independent: even when the user gave no
+    industry or domain, we figure out what the brand actually sells so the category
+    questions fit its real market instead of defaulting to generic software.
+
+    The brand name is stripped from any context we pass downstream, but the inference
+    step itself may use the name (the label it returns is generic, not brand-shaped)."""
+    # A usable explicit industry is the most reliable signal — trust it.
+    if industry and industry.strip().lower() not in ("", "unknown", "other"):
+        # Still enrich with web context when available, but the industry anchors it.
+        if not web_context:
+            return industry.strip()
+    parts = [f"Brand name: {name}"]
+    if industry and industry.strip().lower() not in ("", "unknown", "other"):
+        parts.append(f"Stated industry: {industry.strip()}")
+    if web_context:
+        parts.append(f"Web context: {web_context[:800]}")
+    user = "\n".join(parts) + (
+        "\n\nIn 2-6 words, name the specific product CATEGORY this brand sells in, as a "
+        "buyer would think of it (e.g. 'premium chocolate', 'electric SUV', 'applicant "
+        "tracking software', 'boutique hotel in Lisbon'). Return ONLY the category phrase, "
+        "no brand name, no punctuation, no explanation."
+    )
+    try:
+        resp = await asyncio.to_thread(
+            lambda: bedrock.converse(
+                modelId=QUESTION_MODEL,
+                messages=[{"role": "user", "content": [{"text": user}]}],
+                inferenceConfig={"maxTokens": 30, "temperature": 0.2},
+            )
+        )
+        label = resp["output"]["message"]["content"][0]["text"].strip().strip('".').splitlines()[0]
+        label = _strip_brand(label, name).strip()
+        if label and len(label) < 60:
+            return label
+    except Exception as e:
+        log.warning("category_infer_failed", brand=name, error=str(e))
+    # Fall back to the stated industry, then a safe generic.
+    return (industry or "").strip() or "this product category"
+
+
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None) -> tuple[list[str], str]:
     """Generate the probe set in two BLIND pools to avoid brand-shaped questions:
-      - category questions: generated from the industry/category ONLY (brand withheld)
+      - category questions: generated from the inferred CATEGORY ONLY (brand withheld)
         -> neutral, these are what get scored for true organic visibility.
       - brand-direct questions: generated WITH the brand context -> detail view only.
-    Custom questions (if any) run first."""
-    industry = context.get("industry", "unknown")
-    # Pool 1: neutral category questions — the generator never sees the brand name.
+    Custom questions (if any) run first. Returns (questions, inferred_category)."""
+    name = context.get("name", "")
+    industry = context.get("industry") or "unknown"
+    web_context = context.get("web_context")
+    # Ground the neutral questions in the brand's REAL category (genre-independent),
+    # derived from industry/web-context. The category label carries no brand name, so
+    # the generator stays blind while still asking category-appropriate questions.
+    category = await _infer_category(bedrock, name, industry, web_context)
+    log.info("category_inferred", brand=name, category=category)
     cat_user = (
-        f"Category / industry: {industry}\n"
-        "Write 8 neutral category buyer questions as JSON. Do NOT name any specific brand."
+        f"Category: {category}\n\n"
+        "Write 8 neutral buyer questions for THIS category as JSON. Do NOT name any specific brand."
     )
-    category = await _gen_questions_from_prompt(bedrock, CATEGORY_GEN_PROMPT, cat_user, 8)
+    category_qs = await _gen_questions_from_prompt(bedrock, CATEGORY_GEN_PROMPT, cat_user, 8)
 
     # Pool 2: brand-direct (knows the brand) — for detail, not scored.
     brand_ctx = {k: context[k] for k in ("name", "industry", "web_context") if k in context}
@@ -410,7 +476,8 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
 
     custom = [q.strip() for q in (custom_questions or []) if q.strip()]
     # custom first, then neutral category (scored), then brand-direct (detail). Cap at 12.
-    return (custom + category + brand_direct)[:12]
+    # Also return the inferred category so the caller can persist it on the brand.
+    return (custom + category_qs + brand_direct)[:12], category
 
 
 ANALYSIS_PROMPT = """You are an AI brand visibility analyst. You receive a brand name and per-probe results (each question, and which AI models mentioned the brand). Report what was measured. You do NOT give marketing advice.
@@ -517,10 +584,19 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             raise BrandNotConfirmed(target_brand)
 
     emit("Gathered brand context. Generating questions…")
-    questions = await _generate_questions(bedrock, context, custom_questions)
+    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions)
     if not questions:
         log.error("no_questions_generated", brand_id=brand_id)
         return None
+
+    # Persist the inferred category as the brand's industry when the user didn't set
+    # one, so the dashboard can show it and future audits reuse it (stable + no
+    # re-inference). Never overwrite a user-provided industry. Guard against the
+    # generic fallback label so we don't store a non-answer.
+    if brand and (not brand.industry or not brand.industry.strip()) and inferred_category \
+            and inferred_category != "this product category":
+        brand.industry = inferred_category[:100]
+        emit(f"Category identified: {inferred_category}")
 
     if dry_run:
         for q in questions:

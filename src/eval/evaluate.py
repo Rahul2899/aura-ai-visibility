@@ -12,7 +12,7 @@ from pathlib import Path
 import structlog
 
 from src.llm.extractor import extract_mentions
-from src.llm.bedrock_client import BEDROCK_MODELS
+from src.llm.bedrock_client import BEDROCK_MODELS, BedrockClient
 
 log = structlog.get_logger()
 
@@ -46,7 +46,7 @@ async def run_eval():
         print("labeled.jsonl is empty")
         return
 
-    client = OpenRouterClient()
+    client = BedrockClient()
     total_tp = total_fp = total_fn = 0
     failures = []
 
@@ -60,7 +60,8 @@ async def run_eval():
         if fp > 0 or fn > 0:
             failures.append({"example": i + 1, "tp": tp, "fp": fp, "fn": fn, "expected": ex["expected"], "predicted": predicted})
 
-    await client.close()
+    if hasattr(client, "close"):
+        await client.close()
 
     precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) else 0
     recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) else 0

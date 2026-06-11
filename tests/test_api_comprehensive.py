@@ -546,7 +546,7 @@ def test_share_invalid_token_404(client):
 
 # ── BRAND CREATION RATE LIMIT ─────────────────────────────────────────────────
 # NOTE: defined LAST on purpose. The limiter is per-process/in-memory and (through
-# nginx) keyed on the real client IP, so flooding it consumes the shared budget for
+# Caddy) keyed on the real client IP, so flooding it consumes the shared budget for
 # the whole test run. Running it last avoids poisoning the brand-creation tests above.
 
 def test_brand_creation_rate_limit_eventually_429s(client):
@@ -565,4 +565,3 @@ def test_brand_creation_rate_limit_eventually_429s(client):
     for bid in created_ids:
         client.delete(f"/brands/{bid}?session_id={flood_sess}")
     assert hit_429, "brand creation rate limit never triggered for a single session"
-
