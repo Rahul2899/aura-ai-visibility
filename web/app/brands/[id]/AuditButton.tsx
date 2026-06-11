@@ -246,6 +246,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
         </div>
       )}
 
+      <div className="relative">
       <button
         onClick={() => runPreview()}
         disabled={running || previewing || !!preview}
@@ -272,9 +273,10 @@ export default function AuditButton({ brandId }: { brandId: number }) {
 
       {/* Confirm card: what Aura understood, before spending the audit. The user can
           correct the category (e.g. change "fitness app" to "gym") so the scored
-          questions match what they actually mean. */}
+          questions match what they actually mean. Anchored as a popover below the
+          button so it overlays cleanly instead of floating detached in the layout. */}
       {preview && !running && (
-        <div className="w-80 rounded-xl border border-slate-200 bg-white shadow-lg p-4 space-y-3 text-left">
+        <div className="absolute right-0 top-full mt-2 z-30 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-4 space-y-3 text-left">
           {preview.found ? (
             <>
               <div>
@@ -322,6 +324,7 @@ export default function AuditButton({ brandId }: { brandId: number }) {
           )}
         </div>
       )}
+      </div>
 
       {/* Phase stepper — shows the user what stage the audit is in */}
       {(running || done) && (
