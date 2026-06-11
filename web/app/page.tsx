@@ -27,6 +27,14 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Escape user-controlled text before it is interpolated into the PDF's raw HTML
+// string. Brand names/industries are user input, so without this a name like
+// "<img src=x onerror=...>" would inject markup/script into the print window.
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
 // Build a styled, colorful report and open the browser's print dialog (Save as PDF).
 // Score colors match the app: green >=60, amber >=35, red below.
 function exportPDF(brands: BrandRow[]) {
@@ -46,7 +54,7 @@ function exportPDF(brands: BrandRow[]) {
     const bar = Math.max(b.visibility_pct ?? 0, 2);
     return `<tr>
       <td class="rank">${i + 1}</td>
-      <td><span class="bname">${b.name}</span>${b.industry ? `<span class="ind">${b.industry}</span>` : ""}</td>
+      <td><span class="bname">${escapeHtml(b.name)}</span>${b.industry ? `<span class="ind">${escapeHtml(b.industry)}</span>` : ""}</td>
       <td><div class="barwrap"><div class="bar" style="width:${bar}%;background:${c.fg}"></div></div></td>
       <td><span class="chip" style="color:${c.fg};background:${c.bg}">${b.visibility_pct?.toFixed(0)}%</span></td>
       <td class="probes">${b.probe_count ?? 0}</td>
@@ -84,7 +92,7 @@ function exportPDF(brands: BrandRow[]) {
     <div class="kpis">
       <div class="kpi"><div class="lbl">Brands</div><div class="val">${ranked.length}</div></div>
       <div class="kpi"><div class="lbl">Avg Visibility</div><div class="val" style="color:${scoreColor(avg).fg}">${avg.toFixed(0)}%</div></div>
-      <div class="kpi"><div class="lbl">Market Leader</div><div class="val">${ranked[0]?.name ?? "N/A"}</div></div>
+      <div class="kpi"><div class="lbl">Market Leader</div><div class="val">${escapeHtml(ranked[0]?.name ?? "N/A")}</div></div>
     </div>
     <table>
       <thead><tr><th>#</th><th>Brand</th><th>Visibility</th><th>Score</th><th style="text-align:right">Probes</th></tr></thead>
