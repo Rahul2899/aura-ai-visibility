@@ -40,9 +40,9 @@ function escapeHtml(s: string): string {
 function exportPDF(brands: BrandRow[]) {
   const scoreColor = (p: number | null) =>
     p === null ? { fg: "#64748b", bg: "#f1f5f9" }
-    : p >= 60 ? { fg: "#047857", bg: "#ecfdf5" }
-    : p >= 35 ? { fg: "#b45309", bg: "#fffbeb" }
-    : { fg: "#dc2626", bg: "#fef2f2" };
+    : p >= 60 ? { fg: "#1f8a5b", bg: "#eafaf2" }
+    : p >= 35 ? { fg: "#c08321", bg: "#fdf5e6" }
+    : { fg: "#d2453f", bg: "#fdeceb" };
 
   const ranked = [...brands].filter(b => b.visibility_pct !== null)
     .sort((a, b) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0));
@@ -65,8 +65,8 @@ function exportPDF(brands: BrandRow[]) {
   <style>
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 40px; }
-    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #b8965a; padding-bottom: 16px; margin-bottom: 24px; }
-    .brandmark { font-size: 22px; font-weight: 800; color: #8c6d3f; letter-spacing: -0.02em; }
+    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #1863dc; padding-bottom: 16px; margin-bottom: 24px; }
+    .brandmark { font-size: 22px; font-weight: 800; color: #0f4aad; letter-spacing: -0.02em; }
     .sub { color: #64748b; font-size: 13px; margin-top: 2px; }
     .date { color: #94a3b8; font-size: 12px; font-weight: 600; }
     .kpis { display: flex; gap: 14px; margin-bottom: 28px; }

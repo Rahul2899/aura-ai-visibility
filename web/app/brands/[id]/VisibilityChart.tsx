@@ -18,8 +18,8 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
 
 export default function VisibilityChart({ data }: { data: DataPoint[] }) {
   const latest = data[data.length - 1]?.visibility ?? 0;
-  // Warm, muted score tones to match the luxury palette (no neon on ivory).
-  const color = latest >= 60 ? "#4e7a52" : latest >= 35 ? "#b8893f" : "#b5524a";
+  // Muted score tones tuned to the editorial-blue palette (no neon).
+  const color = latest >= 60 ? "#1f8a5b" : latest >= 35 ? "#c08321" : "#d2453f";
 
   return (
     <ResponsiveContainer width="100%" height={180}>
@@ -31,9 +31,9 @@ export default function VisibilityChart({ data }: { data: DataPoint[] }) {
             <stop offset="100%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#ece6da" vertical={false} />
-        <XAxis dataKey="label" stroke="#d6cdbc" tick={{ fontSize: 11, fill: "#9a9080" }} axisLine={false} tickLine={false} dy={6} />
-        <YAxis domain={[0, 100]} stroke="#d6cdbc" tick={{ fontSize: 11, fill: "#9a9080" }} axisLine={false} tickLine={false} unit="%" width={38} />
+        <CartesianGrid strokeDasharray="3 3" stroke="#e4e7ee" vertical={false} />
+        <XAxis dataKey="label" stroke="#d2d7e1" tick={{ fontSize: 11, fill: "#8a90a2" }} axisLine={false} tickLine={false} dy={6} />
+        <YAxis domain={[0, 100]} stroke="#d2d7e1" tick={{ fontSize: 11, fill: "#8a90a2" }} axisLine={false} tickLine={false} unit="%" width={38} />
         <Tooltip content={<CustomTooltip />} cursor={{ stroke: color, strokeWidth: 1, strokeDasharray: "4 4", strokeOpacity: 0.4 }} />
         <Area
           type="monotone" dataKey="visibility"

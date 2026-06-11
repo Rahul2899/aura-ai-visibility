@@ -10,9 +10,9 @@ export const contentType = "image/png";
 const SERVER_API = process.env.INTERNAL_API_URL ?? "http://app:8000";
 
 function tone(pct: number) {
-  if (pct >= 60) return "#4e7a52";
-  if (pct >= 35) return "#b8893f";
-  return "#b5524a";
+  if (pct >= 60) return "#1f8a5b";
+  if (pct >= 35) return "#c08321";
+  return "#d2453f";
 }
 
 export default async function Image({ params }: { params: Promise<{ token: string }> }) {
@@ -33,42 +33,42 @@ export default async function Image({ params }: { params: Promise<{ token: strin
     // fall back to the generic card below
   }
 
-  const scoreColor = pct === null ? "#9a9080" : tone(pct);
+  const scoreColor = pct === null ? "#8a90a2" : tone(pct);
 
   return new ImageResponse(
     (
       <div
         style={{
           width: "100%", height: "100%", display: "flex", flexDirection: "column",
-          background: "#faf8f3", padding: "72px", justifyContent: "space-between",
+          background: "#f6f7f9", padding: "72px", justifyContent: "space-between",
           fontFamily: "Georgia, serif", position: "relative",
         }}
       >
         {/* brand mark */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: "#b8965a", display: "flex" }} />
-          <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: "#1a1714", letterSpacing: -1 }}>Aura AI</div>
-          <div style={{ display: "flex", fontSize: 22, color: "#9a9080", marginLeft: 6 }}>· AI Brand Visibility</div>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1863dc", display: "flex" }} />
+          <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: "#16181f", letterSpacing: -1 }}>Aura AI</div>
+          <div style={{ display: "flex", fontSize: 22, color: "#8a90a2", marginLeft: 6 }}>· AI Brand Visibility</div>
         </div>
 
         {/* the score */}
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", fontSize: 40, color: "#6b6358", marginBottom: 8 }}>How often AI recommends</div>
-          <div style={{ display: "flex", fontSize: 84, fontWeight: 700, color: "#1a1714", letterSpacing: -2, lineHeight: 1 }}>{brand}</div>
+          <div style={{ display: "flex", fontSize: 40, color: "#4e4b66", marginBottom: 8 }}>How often AI recommends</div>
+          <div style={{ display: "flex", fontSize: 84, fontWeight: 700, color: "#16181f", letterSpacing: -2, lineHeight: 1 }}>{brand}</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 24, marginTop: 28 }}>
             <div style={{ display: "flex", fontSize: 140, fontWeight: 700, color: scoreColor, lineHeight: 0.9 }}>
               {pct === null ? "—" : `${Math.round(pct)}%`}
             </div>
-            <div style={{ display: "flex", fontSize: 30, color: "#6b6358", marginBottom: 22 }}>
+            <div style={{ display: "flex", fontSize: 30, color: "#4e4b66", marginBottom: 22 }}>
               visibility across AI models
             </div>
           </div>
         </div>
 
         {/* footer */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "2px solid #e9e3d6", paddingTop: 24 }}>
-          <div style={{ display: "flex", fontSize: 24, color: "#9a9080" }}>{probes} buyer questions · 4 AI models</div>
-          <div style={{ display: "flex", fontSize: 24, color: "#b8965a", fontWeight: 700 }}>Seen by AI?</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "2px solid #e4e7ee", paddingTop: 24 }}>
+          <div style={{ display: "flex", fontSize: 24, color: "#8a90a2" }}>{probes} buyer questions · 4 AI models</div>
+          <div style={{ display: "flex", fontSize: 24, color: "#1863dc", fontWeight: 700 }}>Seen by AI?</div>
         </div>
       </div>
     ),

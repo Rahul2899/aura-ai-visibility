@@ -2,11 +2,11 @@
 
 type Brand = { name: string; visibility_pct: number | null; id: number };
 
-// Warm, muted score tones — matches the luxury palette (no neon).
+// Muted score tones tuned to the editorial-blue palette (no neon).
 function color(pct: number) {
-  if (pct >= 60) return "#4e7a52";
-  if (pct >= 35) return "#b8893f";
-  return "#b5524a";
+  if (pct >= 60) return "#1f8a5b";
+  if (pct >= 35) return "#c08321";
+  return "#d2453f";
 }
 
 // A horizontal ranking of brands by AI visibility. This is just labelled progress
