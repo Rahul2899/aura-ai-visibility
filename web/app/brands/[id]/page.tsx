@@ -9,6 +9,7 @@ import ProbeDetail from "./ProbeDetail";
 import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
+import { Reveal } from "../../components/Reveal";
 import { getSessionId, getAdminKey } from "../../lib/session";
 import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare } from "lucide-react";
 
@@ -253,6 +254,7 @@ export default function BrandPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            <Reveal>
             <div className="card p-6">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
                 <ScoreRing pct={latest.visibility_pct ?? 0} rank={rank} total={totalBrands > 1 ? totalBrands : undefined} />
@@ -269,9 +271,11 @@ export default function BrandPage() {
                 )}
               </div>
             </div>
+            </Reveal>
 
             {/* Competitor auto-suggest — one-click compare against same-category rivals */}
             {competitors.length > 0 && (
+              <Reveal>
               <div className="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <p className="text-slate-800 font-bold text-sm flex items-center gap-2">
@@ -290,6 +294,7 @@ export default function BrandPage() {
                   Compare vs {competitors.map((c: any) => c.name).join(", ")}
                 </Link>
               </div>
+              </Reveal>
             )}
 
             {(() => {
