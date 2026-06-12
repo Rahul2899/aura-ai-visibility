@@ -375,7 +375,7 @@ export default function Home() {
             <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
               AI Brand Visibility
             </span>
-            <h1 className="display text-[1.65rem] leading-[1.12] sm:text-5xl sm:leading-[1.05] text-slate-900 px-1 text-balance">
+            <h1 className="display text-2xl leading-[1.15] sm:text-5xl sm:leading-[1.05] text-slate-900 px-2 text-balance break-words">
               See how often AI models recommend your brand
             </h1>
             <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
