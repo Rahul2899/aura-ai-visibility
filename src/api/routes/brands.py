@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, delete as sql_delete
+from sqlalchemy.orm import selectinload
 from src.api.auth import is_admin, limit_key, require_read, require_owner_or_admin
 from src.api.ratelimit import SlidingWindowLimiter, client_ip
 from src.db import SessionLocal
@@ -431,6 +432,67 @@ async def get_probe_detail(brand_id: int, session_id: str = None, x_admin_key: s
             ],
             "audit_date": latest_insight.created_at.isoformat(),
         }
+
+
+@router.get("/{brand_id}/probe-responses")
+async def get_probe_responses(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+    """The verbatim answers each model gave, per question, with whether the target brand
+    appeared. Read-only; backed by stored Run.response_text + Mention.is_target_brand so
+    it proves the audit's results are real (the "what AI actually said" reveal)."""
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
+
+        latest_insight = await session.scalar(
+            select(Insight).where(Insight.brand_id == brand_id)
+            .order_by(Insight.created_at.desc())
+        )
+        if not latest_insight:
+            return {"probes": [], "audit_date": None}
+
+        # Same run-window as probe-detail: runs from the latest audit only.
+        run_window_start = latest_insight.created_at - timedelta(minutes=10)
+        prompts = (await session.scalars(
+            select(Prompt).where(Prompt.brand_id == brand_id)
+        )).all()
+        prompt_ids = [p.id for p in prompts]
+        text_by_prompt = {p.id: p.text for p in prompts}
+        if not prompt_ids:
+            return {"probes": [], "audit_date": latest_insight.created_at.isoformat()}
+
+        runs = (await session.scalars(
+            select(Run)
+            .where(Run.prompt_id.in_(prompt_ids), Run.run_at >= run_window_start)
+            .options(selectinload(Run.mentions))
+            .order_by(Run.run_at.desc())
+        )).all()
+
+        # Group runs by question; cap to the latest 10 questions to match the rest of the UI.
+        by_prompt: dict[int, list] = {}
+        for r in runs:
+            by_prompt.setdefault(r.prompt_id, []).append(r)
+
+        probes = []
+        for pid in prompt_ids:
+            if pid not in by_prompt:
+                continue
+            responses = []
+            for r in by_prompt[pid]:
+                target = next((m for m in r.mentions if m.is_target_brand), None)
+                responses.append({
+                    "model": r.model,
+                    # Truncate server-side so a long answer can't bloat the payload.
+                    "response_text": (r.response_text or "")[:1200],
+                    "brand_found": target is not None,
+                    "brand_position": target.position if target else None,
+                })
+            probes.append({"question": text_by_prompt.get(pid, ""), "responses": responses})
+            if len(probes) >= 10:
+                break
+
+        return {"probes": probes, "audit_date": latest_insight.created_at.isoformat()}
 
 
 @router.get("/{brand_id}/probe-performance")

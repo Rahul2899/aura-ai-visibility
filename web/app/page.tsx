@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
+import MagneticCursor from "./components/MagneticCursor";
+import { Reveal, CountUp } from "./components/Reveal";
 import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey, exitAdmin } from "./lib/session";
 import { createBrand, validateBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
@@ -27,14 +29,22 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Escape user-controlled text before it is interpolated into the PDF's raw HTML
+// string. Brand names/industries are user input, so without this a name like
+// "<img src=x onerror=...>" would inject markup/script into the print window.
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
 // Build a styled, colorful report and open the browser's print dialog (Save as PDF).
 // Score colors match the app: green >=60, amber >=35, red below.
 function exportPDF(brands: BrandRow[]) {
   const scoreColor = (p: number | null) =>
     p === null ? { fg: "#64748b", bg: "#f1f5f9" }
-    : p >= 60 ? { fg: "#047857", bg: "#ecfdf5" }
-    : p >= 35 ? { fg: "#b45309", bg: "#fffbeb" }
-    : { fg: "#dc2626", bg: "#fef2f2" };
+    : p >= 60 ? { fg: "#1f8a5b", bg: "#eafaf2" }
+    : p >= 35 ? { fg: "#c08321", bg: "#fdf5e6" }
+    : { fg: "#d2453f", bg: "#fdeceb" };
 
   const ranked = [...brands].filter(b => b.visibility_pct !== null)
     .sort((a, b) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0));
@@ -46,7 +56,7 @@ function exportPDF(brands: BrandRow[]) {
     const bar = Math.max(b.visibility_pct ?? 0, 2);
     return `<tr>
       <td class="rank">${i + 1}</td>
-      <td><span class="bname">${b.name}</span>${b.industry ? `<span class="ind">${b.industry}</span>` : ""}</td>
+      <td><span class="bname">${escapeHtml(b.name)}</span>${b.industry ? `<span class="ind">${escapeHtml(b.industry)}</span>` : ""}</td>
       <td><div class="barwrap"><div class="bar" style="width:${bar}%;background:${c.fg}"></div></div></td>
       <td><span class="chip" style="color:${c.fg};background:${c.bg}">${b.visibility_pct?.toFixed(0)}%</span></td>
       <td class="probes">${b.probe_count ?? 0}</td>
@@ -57,8 +67,8 @@ function exportPDF(brands: BrandRow[]) {
   <style>
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 40px; }
-    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0369a1; padding-bottom: 16px; margin-bottom: 24px; }
-    .brandmark { font-size: 22px; font-weight: 800; color: #0369a1; }
+    .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #1863dc; padding-bottom: 16px; margin-bottom: 24px; }
+    .brandmark { font-size: 22px; font-weight: 800; color: #0f4aad; letter-spacing: -0.02em; }
     .sub { color: #64748b; font-size: 13px; margin-top: 2px; }
     .date { color: #94a3b8; font-size: 12px; font-weight: 600; }
     .kpis { display: flex; gap: 14px; margin-bottom: 28px; }
@@ -84,7 +94,7 @@ function exportPDF(brands: BrandRow[]) {
     <div class="kpis">
       <div class="kpi"><div class="lbl">Brands</div><div class="val">${ranked.length}</div></div>
       <div class="kpi"><div class="lbl">Avg Visibility</div><div class="val" style="color:${scoreColor(avg).fg}">${avg.toFixed(0)}%</div></div>
-      <div class="kpi"><div class="lbl">Market Leader</div><div class="val">${ranked[0]?.name ?? "N/A"}</div></div>
+      <div class="kpi"><div class="lbl">Market Leader</div><div class="val">${escapeHtml(ranked[0]?.name ?? "N/A")}</div></div>
     </div>
     <table>
       <thead><tr><th>#</th><th>Brand</th><th>Visibility</th><th>Score</th><th style="text-align:right">Probes</th></tr></thead>
@@ -135,8 +145,12 @@ function ScoreChip({ pct }: { pct: number | null }) {
 // the dashboard to reload when a job finishes, so the new score appears.
 type ActiveJob = { brandId: number; jobId: string; status: string; progress: string };
 
-function ActiveAudits({ brands, onComplete }: { brands: BrandRow[]; onComplete: () => void }) {
+function ActiveAudits({ brands, onComplete, onActiveChange }: { brands: BrandRow[]; onComplete: () => void; onActiveChange?: (ids: number[]) => void }) {
   const [jobs, setJobs] = useState<ActiveJob[]>([]);
+
+  // Report the set of in-progress brand ids up to the dashboard so it can move those
+  // brands out of the "Unaudited" list into an "Audit in progress" state.
+  useEffect(() => { onActiveChange?.(jobs.map(j => j.brandId)); }, [jobs, onActiveChange]);
 
   useEffect(() => {
     let stop = false;
@@ -226,6 +240,12 @@ export default function Home() {
   const [limitReached, setLimitReached] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
   const [admin, setAdmin] = useState(false);
+  // Brand ids with an audit running right now (reported by ActiveAudits). Used to move
+  // them out of the "Unaudited" list and show an "Audit in progress" state instead.
+  const [activeIds, setActiveIds] = useState<number[]>([]);
+  const onActiveChange = useCallback((ids: number[]) => {
+    setActiveIds(prev => (prev.length === ids.length && prev.every(x => ids.includes(x)) ? prev : ids));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -318,10 +338,14 @@ export default function Home() {
   const sortedAudited = [...allAudited].sort((a, b) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0));
   const avg = allAudited.length ? allAudited.reduce((s, b) => s + (b.visibility_pct ?? 0), 0) / allAudited.length : null;
   const best = sortedAudited[0] ?? null;
-  const pending = filtered.filter(b => b.visibility_pct === null);
+  const notScored = filtered.filter(b => b.visibility_pct === null);
+  // A brand with a running audit is "in progress", not "unaudited".
+  const inProgress = notScored.filter(b => activeIds.includes(b.id));
+  const pending = notScored.filter(b => !activeIds.includes(b.id));
 
   return (
     <main className="min-h-screen" style={{ background: "var(--bg)" }}>
+      <MagneticCursor />
       {/* Top nav */}
       <header className="border-b px-5 sm:px-8 py-4 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md" style={{ borderColor: "var(--border-solid)", background: "rgba(255,255,255,0.95)" }}>
         <Link href="/" className="flex items-center gap-3 group">
@@ -346,39 +370,41 @@ export default function Home() {
 
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
         {/* Hero — tell a first-time visitor exactly what this is */}
-        <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
-          <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
-            AI Brand Visibility
-          </span>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight leading-tight">
-            See how often AI models recommend your brand
-          </h1>
-          <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
-            When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.
-          </p>
-          <div className="pt-1">
-            <a href="#audit-form" className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
-              <Plus className="w-4 h-4 text-white" /> Audit your brand
-            </a>
-          </div>
-        </section>
+        <Reveal>
+          <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
+              AI Brand Visibility
+            </span>
+            <h1 className="display text-3xl sm:text-5xl text-slate-900 leading-[1.05]">
+              See how often AI models recommend your brand
+            </h1>
+            <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
+              When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.
+            </p>
+            <div className="pt-1">
+              <a href="#audit-form" data-magnetic className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
+                <Plus className="w-4 h-4 text-white" /> Audit your brand
+              </a>
+            </div>
+          </section>
+        </Reveal>
 
         {/* In-progress audits (survive a refresh; the work continues server-side) */}
-        <ActiveAudits brands={brands} onComplete={load} />
+        <ActiveAudits brands={brands} onComplete={load} onActiveChange={onActiveChange} />
 
         {/* KPI strip — single card, connected; stacks on mobile to avoid overflow */}
         {audited.length > 0 && (
           <div className="card overflow-hidden">
             <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
               {[
-                { label: "Brands Tracked", value: brands.length.toString(), sub: `${audited.length} audited` },
-                { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", sub: "across all brands", colored: avg },
-                { label: "Market Leader", value: best?.name ?? "—", sub: best ? `${best.visibility_pct?.toFixed(0)}% visibility` : "", colored: best?.visibility_pct },
-              ].map(({ label, value, sub, colored }) => (
+                { label: "Brands Tracked", value: brands.length.toString(), count: brands.length, suffix: "", sub: `${audited.length} audited` },
+                { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", count: avg !== null ? avg : null, suffix: "%", sub: "across all brands", colored: avg },
+                { label: "Market Leader", value: best?.name ?? "—", count: null, suffix: "", sub: best ? `${best.visibility_pct?.toFixed(0)}% visibility` : "", colored: best?.visibility_pct },
+              ].map(({ label, value, count, suffix, sub, colored }) => (
                 <div key={label} className="px-6 py-4">
                   <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
                   <p className={`text-2xl sm:text-3xl font-bold mt-1 tracking-tight truncate ${colored !== undefined && colored !== null ? (colored >= 60 ? "text-emerald-600" : colored >= 35 ? "text-amber-600" : "text-red-600") : "text-slate-900"}`}>
-                    {value}
+                    {count !== null && count !== undefined ? <CountUp value={count} suffix={suffix} /> : value}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>
                 </div>
@@ -422,7 +448,7 @@ export default function Home() {
               /* Beautiful Visual Onboarding Step Diagram for New Users */
               <div className="card p-8 space-y-8">
                 <div className="text-center max-w-lg mx-auto space-y-2.5">
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
                     How Aura works
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
@@ -443,7 +469,7 @@ export default function Home() {
                       {idx < 3 && (
                         <div className="hidden md:block absolute top-1/2 -right-2.5 -translate-y-1/2 z-10 w-5 h-0.5 bg-slate-300" />
                       )}
-                      <span className="text-sky-700 font-extrabold text-[10px] tabular mono uppercase">{s.step}</span>
+                      <span className="text-[var(--accent-2)] font-extrabold text-[10px] tabular mono uppercase">{s.step}</span>
                       <p className="font-extrabold text-sm text-slate-800">{s.title}</p>
                       <p className="text-slate-500 text-[11px] leading-normal font-semibold">{s.desc}</p>
                     </div>
@@ -451,7 +477,7 @@ export default function Home() {
                 </div>
 
                 <div className="text-center text-slate-500 text-xs font-semibold pt-1">
-                  Ready to test? Add your brand details in the <span className="text-sky-700 font-bold">Audit a Brand</span> panel to trigger your first run.
+                  Ready to test? Add your brand details in the <span className="text-[var(--accent-2)] font-bold">Audit a Brand</span> panel to trigger your first run.
                 </div>
               </div>
             ) : (
@@ -553,7 +579,7 @@ export default function Home() {
                           <div className="w-16 flex items-center justify-end gap-1">
                           {!b.is_example && (
                             <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
-                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-sky-50 transition-all opacity-0 group-hover:opacity-100"
+                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all opacity-0 group-hover:opacity-100"
                               title="Re-run audit"
                               aria-label={`Re-run audit for ${b.name}`}>
                               <RefreshCw className="w-3.5 h-3.5" />
@@ -725,6 +751,33 @@ export default function Home() {
               </form>
             </div>
 
+            {/* Audits running right now — these are NOT "unaudited", they're mid-run. */}
+            {inProgress.length > 0 && (
+              <div className="card p-6 space-y-4">
+                <div>
+                  <h2 className="text-slate-900 font-bold text-sm flex items-center gap-2">
+                    <span className="live-dot" /> Audit in progress
+                  </h2>
+                  <p className="text-slate-500 text-xs mt-0.5 font-semibold">Running across 4 AI models — this finishes on its own</p>
+                </div>
+                <div className="flex flex-col gap-2.5">
+                  {inProgress.map(b => (
+                    <Link key={b.id} href={`/brands/${b.id}`} className="block">
+                      <div className="flex items-center justify-between p-3.5 rounded-xl border border-[var(--accent)]/30 transition-all cursor-pointer" style={{ background: "var(--accent-dim)" }}>
+                        <span className="text-slate-800 text-sm font-bold truncate max-w-32 flex items-center gap-2">
+                          <Loader2 className="w-3.5 h-3.5 text-[var(--accent)] animate-spin flex-shrink-0" />
+                          {b.name}
+                        </span>
+                        <span className="text-[var(--accent-2)] text-xs font-bold flex items-center gap-1">
+                          Auditing… <ArrowRight className="w-3.5 h-3.5 text-[var(--accent-2)]" />
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Pending / Unaudited Brands list */}
             {pending.length > 0 && (
               <div className="card p-6 space-y-4">
@@ -736,10 +789,10 @@ export default function Home() {
                   {pending.map(b => (
                     <div key={b.id} className="relative group">
                       <Link href={`/brands/${b.id}`} className="block">
-                        <div className="flex items-center justify-between p-3.5 pr-14 rounded-xl border border-dashed border-slate-300 hover:border-sky-300 hover:bg-sky-50 transition-all cursor-pointer">
+                        <div className="flex items-center justify-between p-3.5 pr-14 rounded-xl border border-dashed border-slate-300 hover:border-[var(--accent)]/40 hover:bg-[var(--accent-dim)] transition-all cursor-pointer">
                           <span className="text-slate-700 text-sm font-bold truncate max-w-28">{b.name}</span>
-                          <span className="text-sky-700 text-xs font-bold flex items-center gap-1">
-                            Run Audit <ArrowRight className="w-3.5 h-3.5 text-sky-700" />
+                          <span className="text-[var(--accent-2)] text-xs font-bold flex items-center gap-1">
+                            Run Audit <ArrowRight className="w-3.5 h-3.5 text-[var(--accent-2)]" />
                           </span>
                         </div>
                       </Link>
@@ -762,22 +815,26 @@ export default function Home() {
         </div>
 
         {/* How it works — methodology / trust layer */}
-        <section className="card p-6 sm:p-8">
-          <h2 className="font-bold text-lg text-slate-900 text-center">How Aura measures AI visibility</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
-            {[
-              { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
-              { step: "2", title: "Four AI models", desc: "Each question runs across four model families in parallel." },
-              { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
-            ].map(s => (
-              <div key={s.step} className="text-center space-y-2">
-                <div className="w-8 h-8 rounded-full bg-[var(--accent-dim)] text-[var(--accent)] font-bold text-sm flex items-center justify-center mx-auto">{s.step}</div>
-                <p className="font-bold text-sm text-slate-800">{s.title}</p>
-                <p className="text-slate-500 text-xs font-medium leading-relaxed">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        <Reveal>
+          <section className="card p-6 sm:p-8">
+            <h2 className="font-bold text-lg text-slate-900 text-center">How Aura measures AI visibility</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6">
+              {[
+                { step: "1", title: "Real buyer questions", desc: "We generate about 10 questions a real buyer would ask an AI about your category, not generic prompts." },
+                { step: "2", title: "Four AI models", desc: "Each question runs across four model families in parallel." },
+                { step: "3", title: "A visibility score", desc: "We measure how often your brand gets mentioned, then show where you're strong and where you're invisible." },
+              ].map((s, i) => (
+                <Reveal key={s.step} delay={i * 120}>
+                  <div className="text-center space-y-2">
+                    <div className="w-8 h-8 rounded-full bg-[var(--accent-dim)] text-[var(--accent)] font-bold text-sm flex items-center justify-center mx-auto">{s.step}</div>
+                    <p className="font-bold text-sm text-slate-800">{s.title}</p>
+                    <p className="text-slate-500 text-xs font-medium leading-relaxed">{s.desc}</p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+          </section>
+        </Reveal>
       </div>
 
       <footer className="border-t mt-8 py-6 px-6 text-center" style={{ borderColor: "var(--border-solid)" }}>

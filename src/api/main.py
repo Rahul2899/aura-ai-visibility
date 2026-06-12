@@ -172,6 +172,12 @@ app.include_router(brands_router)
 app.include_router(audits_router)
 
 
+@app.get("/health")
+async def health():
+    """Liveness probe for load balancers / container orchestrators (ALB, ECS)."""
+    return {"status": "ok"}
+
+
 # Turn malformed input that reaches the DB (null bytes, out-of-range integers, bad
 # encodings) into a clean 400 instead of a 500 + leaked stack trace. These come from
 # hostile/garbage path params; they're client errors, not server faults.

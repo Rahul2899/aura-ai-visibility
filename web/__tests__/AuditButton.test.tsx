@@ -68,9 +68,9 @@ describe("AuditButton Component", () => {
     // Click Run Audit -> preview -> confirm card -> Run audit (starts the real audit)
     await clickRunAndConfirm(fetchMock, mockStartResponse);
 
-    // Button should show running aria-label state
+    // Button should show running aria-label state. (The live scan instrument now renders
+    // in the brand-page body via onJobChange, not inside this component.)
     expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
-    expect(screen.getByText(/Initializing audit session…/)).toBeInTheDocument();
 
     // Verify the audit-start POST was made (the second POST, after the preview)
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/audit/brands/${brandId}`), expect.objectContaining({
@@ -88,8 +88,9 @@ describe("AuditButton Component", () => {
       jest.advanceTimersByTime(3000);
     });
 
-    expect(screen.getByText(/Searching the web for brand context…/)).toBeInTheDocument();
-    expect(screen.getByText("3/10 queries")).toBeInTheDocument();
+    // The live event feed + probe counter now render in the brand-page scan (fed via
+    // onJobChange), not in this component. Here we just confirm the audit is still running.
+    expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
 
     // 3. Mock Third call: Poll status (GET - completed)
     fetchMock.mockResolvedValueOnce({
@@ -155,8 +156,8 @@ describe("AuditButton Component", () => {
     global.fetch = fetchMock;
 
     render(<AuditButton brandId={brandId} />);
-    // Shows the resume state immediately
-    expect(screen.getByText(/Resuming in-progress audit…/)).toBeInTheDocument();
+    // Resuming an in-progress audit immediately shows the running button state.
+    expect(screen.getByRole("button", { name: "Running audit queries" })).toBeInTheDocument();
 
     await act(async () => {
       jest.advanceTimersByTime(3000);

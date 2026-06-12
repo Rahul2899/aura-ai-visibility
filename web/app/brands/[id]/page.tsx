@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
-import AuditButton from "./AuditButton";
+import AuditButton, { type JobState } from "./AuditButton";
+import AuditLiveScan from "./AuditLiveScan";
 import DeleteInsightButton from "./DeleteInsightButton";
 import ProbeDetail from "./ProbeDetail";
 import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
+import { Reveal } from "../../components/Reveal";
 import { getSessionId, getAdminKey } from "../../lib/session";
-import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2 } from "lucide-react";
+import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -43,6 +45,7 @@ export default function BrandPage() {
   const [probePerf, setProbePerf] = useState<{ top: any[]; bottom: any[] }>({ top: [], bottom: [] });
   const [compare, setCompare] = useState<any[]>([]);
   const [probeDetail, setProbeDetail] = useState<{ probes: any[]; audit_date: string | null }>({ probes: [], audit_date: null });
+  const [probeResponses, setProbeResponses] = useState<any[]>([]);
   const [darkMatter, setDarkMatter] = useState<any>({ dark_matter_count: 0, total_probes: 0, probes: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +54,9 @@ export default function BrandPage() {
   // same localStorage job key AuditButton uses, so it works whether the audit was
   // triggered via autostart or the "Run Audit" button. Drives the centered progress UI.
   const [auditActive, setAuditActive] = useState(false);
+  // Live job state lifted from AuditButton so the scan renders in-flow in the body.
+  const [liveJob, setLiveJob] = useState<JobState | null>(null);
+  const onJobChange = useCallback((j: JobState | null) => setLiveJob(j), []);
   useEffect(() => {
     // Drive the centered progress panel off the live job key only. AuditButton
     // removes that key on completion OR failure, so this clears correctly. We must
@@ -92,7 +98,7 @@ export default function BrandPage() {
     const qs = sessQs();
     const hdrs = apiHeaders();
     try {
-      const [brandRes, insightsRes, biasRes, perfRes, compareRes, detailRes, darkRes] = await Promise.all([
+      const [brandRes, insightsRes, biasRes, perfRes, compareRes, detailRes, darkRes, respRes] = await Promise.all([
         fetch(`${API}/brands/${id}?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/insights?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/model-bias?${qs}`, { headers: hdrs }),
@@ -100,6 +106,7 @@ export default function BrandPage() {
         fetch(`${API}/brands/compare?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/probe-detail?${qs}`, { headers: hdrs }),
         fetch(`${API}/brands/${id}/dark-matter?${qs}`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/probe-responses?${qs}`, { headers: hdrs }),
       ]);
       if (brandRes.status === 403) { setError("You do not have access to this brand."); return; }
       if (brandRes.status === 404) { setError("Brand not found."); return; }
@@ -111,6 +118,7 @@ export default function BrandPage() {
       if (compareRes.ok) setCompare(await compareRes.json());
       if (detailRes.ok) setProbeDetail(await detailRes.json());
       if (darkRes.ok) setDarkMatter(await darkRes.json());
+      if (respRes.ok) { const d = await respRes.json(); setProbeResponses(Array.isArray(d.probes) ? d.probes : []); }
     } catch {
       setError("Network error loading brand data.");
     } finally {
@@ -172,6 +180,17 @@ export default function BrandPage() {
     visibility: ins.visibility_pct ?? 0,
   }));
 
+  // Competitor auto-suggest: same-category audited brands (excluding this one), top 3 by
+  // visibility. Derived from the compare list already loaded — no extra request.
+  const myCategory = brand.industry?.split("/")[0].trim().toLowerCase() ?? "";
+  const competitors = myCategory
+    ? compare
+        .filter((b: any) => b.id !== Number(id) && b.visibility_pct !== null &&
+          (b.industry?.split("/")[0].trim().toLowerCase() ?? "") === myCategory)
+        .sort((a: any, b: any) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0))
+        .slice(0, 3)
+    : [];
+
   return (
     <main className="min-h-screen animate-fade-in" style={{ background: "var(--bg)" }}>
       <header className="border-b px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between gap-2 sticky top-0 z-10 backdrop-blur-md"
@@ -190,7 +209,7 @@ export default function BrandPage() {
                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
             )}
           </div>
-          <h1 className="font-bold text-base text-slate-900 tracking-tight truncate">{brand.name}</h1>
+          <h1 className="display text-lg text-slate-900 truncate">{brand.name}</h1>
           {brand.industry && <span className="hidden md:inline text-slate-400 text-sm font-semibold flex-shrink-0">{brand.industry.split("/")[0].trim()}</span>}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -202,43 +221,64 @@ export default function BrandPage() {
               <span className="hidden sm:inline">{shareLabel}</span>
             </button>
           )}
-          <AuditButton brandId={Number(id)} />
+          <AuditButton brandId={Number(id)} brandName={brand.name} isExample={brand.is_example} onJobChange={onJobChange} />
         </div>
       </header>
 
       <div className="max-w-5xl mx-auto px-5 sm:px-6 py-8 space-y-6">
-        {!latest ? (
+        {auditActive ? (
+          /* Live audit — the scan instrument is the body, in-flow (not a floating panel) */
+          <div className="flex flex-col items-center gap-5 py-6">
+            <AuditLiveScan
+              brandName={brand.name}
+              probeCount={liveJob?.probe_count ?? 0}
+              total={10}
+              status={liveJob?.status ?? "running"}
+              events={liveJob?.events ?? []}
+            />
+            {/* Phase stepper under the scan */}
+            <div className="w-[min(92vw,640px)] flex items-center gap-1.5">
+              {[
+                { key: "questions", label: "Questions" },
+                { key: "probing", label: "Probing" },
+                { key: "analyzing", label: "Analyzing" },
+              ].map((p, idx) => {
+                const probes = liveJob?.probe_count ?? 0;
+                const phase = probes > 0 ? 2 : 1;
+                const active = idx + 1 <= phase;
+                return (
+                  <div key={p.key} className="flex-1 flex flex-col items-center gap-1">
+                    <div className={`w-full h-1 rounded-full transition-colors ${active ? "bg-[var(--accent)]" : "bg-slate-200"}`} />
+                    <span className={`text-[9px] font-bold uppercase tracking-wide ${active ? "text-[var(--accent)]" : "text-slate-300"}`}>{p.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto text-center leading-relaxed">
+              This page refreshes automatically when the audit finishes (about 1 to 2 minutes).
+            </p>
+          </div>
+        ) : !latest ? (
           <div className="card p-16 text-center" style={{ borderStyle: "dashed" }}>
-            {auditActive ? (
-              <div className="space-y-5 max-w-xl mx-auto">
-                <div className="flex items-center justify-center gap-2.5">
-                  <span className="live-dot" />
-                  <p className="text-slate-900 font-bold text-xl">Auditing {brand.name}…</p>
-                </div>
-                <p className="text-slate-500 text-sm font-semibold max-w-lg mx-auto leading-relaxed">
-                  Asking real buyer questions across 4 AI models and measuring how often {brand.name} gets recommended. Live progress is in the panel above. This page refreshes when done (about 1 to 2 minutes).
+            <div className="space-y-5 max-w-md mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--accent-dim)] flex items-center justify-center mx-auto">
+                <Sparkles className="w-7 h-7 text-[var(--accent)]" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
+                <p className="text-slate-500 text-sm font-semibold leading-relaxed">
+                  We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show the exact questions and models where it appears.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-5 max-w-md mx-auto">
-                <div className="w-14 h-14 rounded-2xl bg-[var(--accent-dim)] flex items-center justify-center mx-auto">
-                  <Sparkles className="w-7 h-7 text-[var(--accent)]" />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-slate-900 font-bold text-lg">Run your first audit for {brand.name}</p>
-                  <p className="text-slate-500 text-sm font-semibold leading-relaxed">
-                    We&apos;ll ask about 10 buyer-style questions across 4 AI models and measure how often {brand.name} gets recommended, then show the exact questions and models where it appears.
-                  </p>
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
-                  <ArrowUp className="w-4 h-4 rotate-45" />
-                  Click &quot;Run Audit&quot; in the top-right to begin
-                </div>
+              <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[var(--accent)]">
+                <ArrowUp className="w-4 h-4 rotate-45" />
+                Click &quot;Run Audit&quot; in the top-right to begin
               </div>
-            )}
+            </div>
           </div>
         ) : (
           <div className="space-y-6">
+            <Reveal>
             <div className="card p-6">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
                 <ScoreRing pct={latest.visibility_pct ?? 0} rank={rank} total={totalBrands > 1 ? totalBrands : undefined} />
@@ -255,6 +295,31 @@ export default function BrandPage() {
                 )}
               </div>
             </div>
+            </Reveal>
+
+            {/* Competitor auto-suggest — one-click compare against same-category rivals */}
+            {competitors.length > 0 && (
+              <Reveal>
+              <div className="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-slate-800 font-bold text-sm flex items-center gap-2">
+                    <GitCompare className="w-4 h-4 text-[var(--accent)]" />
+                    Compare {brand.name} against rivals
+                  </p>
+                  <p className="text-slate-400 text-xs mt-0.5 font-semibold">
+                    Same category{brand.industry ? ` · ${brand.industry.split("/")[0].trim()}` : ""} — see who AI recommends most.
+                  </p>
+                </div>
+                <Link
+                  href={`/compare?ids=${[Number(id), ...competitors.map((c: any) => c.id)].join(",")}`}
+                  className="btn-primary flex items-center justify-center gap-2 text-sm flex-shrink-0"
+                >
+                  <GitCompare className="w-4 h-4 text-white" />
+                  Compare vs {competitors.map((c: any) => c.name).join(", ")}
+                </Link>
+              </div>
+              </Reveal>
+            )}
 
             {(() => {
               const findings = latest.key_findings?.length > 0 ? latest.key_findings : summaryToBullets(latest.summary);
@@ -328,7 +393,8 @@ export default function BrandPage() {
             )}
 
             {probeDetail.probes.length > 0 && (
-              <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date} />
+              <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date}
+                responses={probeResponses} brandName={brand.name} />
             )}
 
             {darkMatter.dark_matter_count > 0 && (

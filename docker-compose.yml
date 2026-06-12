@@ -36,6 +36,9 @@ services:
       context: ./web
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+    environment:
+      # Server-side (OG image generation) reaches the API on the internal network.
+      INTERNAL_API_URL: http://app:8000
     restart: unless-stopped
 
   # Caddy is the only public entry point. It reverse-proxies to web/app and

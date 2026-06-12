@@ -7,7 +7,7 @@ import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus }
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type JobState = {
+export type JobState = {
   status: string;
   probe_count?: number;
   visibility_pct?: number;
@@ -18,7 +18,7 @@ type JobState = {
 
 type PreviewState = { found: boolean; category: string; summary?: string };
 
-export default function AuditButton({ brandId }: { brandId: number }) {
+export default function AuditButton({ brandId, brandName = "this brand", isExample = false, onJobChange }: { brandId: number; brandName?: string; isExample?: boolean; onJobChange?: (job: JobState | null) => void }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [showCustom, setShowCustom] = useState(false);
@@ -198,6 +198,10 @@ export default function AuditButton({ brandId }: { brandId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Report live job state up so the brand page can render the scan in-flow in its body
+  // (instead of this component floating a fixed panel over the page).
+  useEffect(() => { onJobChange?.(job); }, [job, onJobChange]);
+
   const running = job?.status === "running" || job?.status === "queued";
   const done = job?.status === "completed";
   const failed = job?.status === "failed";
@@ -249,9 +253,10 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       <div className="relative">
       <button
         onClick={() => runPreview()}
-        disabled={running || previewing || !!preview}
+        disabled={running || previewing || !!preview || isExample}
+        title={isExample ? "Demo brands are read-only. Add your own brand to run a fresh audit." : undefined}
         className="btn-primary flex items-center gap-2 text-sm relative overflow-hidden"
-        aria-label={running ? "Running audit queries" : "Execute brand audit queries"}
+        aria-label={running ? "Running audit queries" : isExample ? "Demo brand — auditing disabled" : "Execute brand audit queries"}
       >
         {running ? (
           <>
@@ -262,6 +267,11 @@ export default function AuditButton({ brandId }: { brandId: number }) {
           <>
             <Loader2 className="w-4 h-4 animate-spin text-white" />
             <span>Checking…</span>
+          </>
+        ) : isExample ? (
+          <>
+            <Play className="w-4 h-4 text-white fill-white" />
+            <span>Demo (read-only)</span>
           </>
         ) : (
           <>
@@ -326,56 +336,31 @@ export default function AuditButton({ brandId }: { brandId: number }) {
       )}
       </div>
 
-      {/* Phase stepper — shows the user what stage the audit is in */}
-      {(running || done) && (
-        <div className="w-80 flex items-center gap-1.5">
-          {[
-            { key: "questions", label: "Questions" },
-            { key: "probing", label: "Probing" },
-            { key: "analyzing", label: "Analyzing" },
-          ].map((p, idx) => {
-            const probes = job?.probe_count ?? 0;
-            const phase = done ? 3 : probes > 0 ? 2 : 1; // 1=questions,2=probing,3=done
-            const active = idx + 1 <= phase;
-            return (
-              <div key={p.key} className="flex-1 flex flex-col items-center gap-1">
-                <div className={`w-full h-1 rounded-full transition-colors ${active ? "bg-[var(--accent)]" : "bg-slate-200"}`} />
-                <span className={`text-[9px] font-bold uppercase tracking-wide ${active ? "text-[var(--accent)]" : "text-slate-300"}`}>{p.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* The live spy/scan + phase stepper now render IN-FLOW in the brand-page body
+          (via onJobChange), not floating from this header button. */}
 
-      {/* High-fidelity Live Log Console — while running it anchors as a prominent
-          fixed panel (top-center on desktop) so the "live search" is the star of the
-          show, not a cramped corner widget. Falls back to inline once complete. */}
-      {log.length > 0 && (
+      {/* Once finished/failed, fall back to a compact inline log so the result and
+          any error are legible. (The scan is only for the live moment.) */}
+      {!running && log.length > 0 && (
         <div
-          className={`rounded-xl p-4 text-left border shadow-2xl transition-all duration-300 ${
-            running
-              ? "fixed left-1/2 -translate-x-1/2 top-20 z-40 w-[min(92vw,640px)]"
-              : "w-80"
-          }`}
-          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+          className="rounded-xl p-4 text-left border shadow-lg w-80"
+          style={{ background: "var(--surface-solid)", borderColor: "var(--border-solid)" }}
           role="log"
           aria-live="polite"
         >
-          <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-900">
+          <div className="flex items-center justify-between mb-3 pb-2 border-b" style={{ borderColor: "var(--border-solid)" }}>
             <div className="flex items-center gap-2">
               <Terminal className="w-3.5 h-3.5 text-[var(--accent)]" />
-              <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Audit Logs</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--text-3)" }}>Audit Log</span>
             </div>
             <div className="flex items-center gap-2">
-              {running && <span className="live-dot" />}
-              {done && <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Complete</span>}
-              {failed && <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Failed</span>}
-              {unconfirmed && <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brand unconfirmed</span>}
-              {running && <span className="text-[10px] text-zinc-500 font-bold tabular">{job?.probe_count ?? 0}/10 queries</span>}
+              {done && <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: "var(--green)" }}><CheckCircle2 className="w-3 h-3" /> Complete</span>}
+              {failed && <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: "var(--red)" }}><AlertCircle className="w-3 h-3" /> Failed</span>}
+              {unconfirmed && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Brand unconfirmed</span>}
             </div>
           </div>
 
-          <div className={`flex flex-col gap-1.5 overflow-y-auto pr-1 ${running ? "max-h-64" : "max-h-36"}`}>
+          <div className="flex flex-col gap-1.5 overflow-y-auto pr-1 max-h-36">
             {log.map((line, i) => {
               const isDone = line.startsWith("✓");
               const isFail = line.startsWith("✗");
@@ -392,21 +377,19 @@ export default function AuditButton({ brandId }: { brandId: number }) {
             })}
           </div>
 
-          {/* Too-busy notice */}
-          {failed && job?.error?.includes("busy") && (
-            <p className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Server is busy. Wait 2-3 minutes and try again.
+          {/* Always surface WHY an audit failed — the server sends a specific reason
+              (limit reached, example brand is read-only, already running, busy). Show
+              it plainly instead of leaving the user staring at a bare "Failed". */}
+          {failed && job?.error && (
+            <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 leading-relaxed">
+              {job.error.includes("busy")
+                ? "The server is busy right now. Wait 2-3 minutes and try again."
+                : job.error.includes("example")
+                ? "This is a preloaded demo brand and can't be re-audited. Add your own brand from the dashboard to run a fresh audit."
+                : job.error.includes("limit")
+                ? "You've reached the free audit limit (2 audits). Please check back later."
+                : job.error}
             </p>
-          )}
-
-          {/* Progress bar with glowing details */}
-          {running && (
-            <div className="mt-3.5 w-full rounded-full h-1 bg-zinc-950 overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <div
-                className="h-full rounded-full bg-[var(--accent)] transition-all duration-1000 ease-out"
-                style={{ width: `${Math.min((job?.probe_count ?? 0) * 10, 95)}%` }}
-              />
-            </div>
           )}
         </div>
       )}

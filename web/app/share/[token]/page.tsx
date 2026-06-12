@@ -67,7 +67,7 @@ export default function SharedReportPage() {
 
       <div className="max-w-3xl mx-auto px-6 py-10 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{report.brand}</h1>
+          <h1 className="display text-4xl text-slate-900">{report.brand}</h1>
           {report.industry && <p className="text-slate-400 text-sm font-semibold mt-0.5">{report.industry.split("/")[0].trim()}</p>}
         </div>
 
@@ -77,7 +77,7 @@ export default function SharedReportPage() {
           <>
             <div className="card p-8 text-center">
               <p className="text-[11px] uppercase font-bold tracking-wider text-slate-400">AI Visibility Score</p>
-              <p className={`text-6xl font-extrabold mt-2 ${tone}`}>{pct.toFixed(0)}%</p>
+              <p className={`display text-7xl mt-2 ${tone}`}>{pct.toFixed(0)}%</p>
               <p className="text-slate-500 text-sm font-semibold mt-2 max-w-md mx-auto">{ins.summary}</p>
               <p className="text-[11px] text-slate-400 mt-3">{ins.probe_count} probes · {new Date(ins.created_at).toLocaleDateString()}</p>
             </div>

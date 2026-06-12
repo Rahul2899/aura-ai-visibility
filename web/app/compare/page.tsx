@@ -5,6 +5,7 @@ import Link from "next/link";
 import { friendlyName, providerKey } from "../lib/models";
 import { getSessionId, getAdminKey } from "../lib/session";
 import { createBrand, validateBrand } from "../lib/brands";
+import { Reveal } from "../components/Reveal";
 import {
   ArrowLeft,
   Play,
@@ -75,6 +76,16 @@ export default function ComparePage() {
         // guessing. Avoids confusing new users with a pre-filled comparison.
         if (Array.isArray(brands)) setAllBrands(brands);
         if (Array.isArray(industryList)) setIndustries(industryList);
+        // Allow deep-linking a preselection via ?ids=1,2,3 (used by the brand-page
+        // "compare against competitors" suggestions). Only keep ids that exist.
+        if (typeof window !== "undefined" && Array.isArray(brands)) {
+          const ids = new URLSearchParams(window.location.search).get("ids");
+          if (ids) {
+            const known = new Set(brands.map((b: { id: number }) => b.id));
+            const pick = ids.split(",").map(Number).filter(n => known.has(n));
+            if (pick.length) setSelected(pick);
+          }
+        }
       })
       .catch(() => []);
   }, []);
@@ -485,6 +496,7 @@ export default function ComparePage() {
         {data.length > 0 && (
           <>
             {/* Score cards grid */}
+            <Reveal>
             <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))` }}>
               {data.map(d => (
                 <div key={d.id} className="card p-5 text-center flex flex-col items-center justify-center">
@@ -500,9 +512,11 @@ export default function ComparePage() {
                 </div>
               ))}
             </div>
+            </Reveal>
 
             {/* Model matrix comparison */}
             {allModelIds.length > 0 && (
+              <Reveal>
               <div className="card p-6 overflow-hidden">
                 <p className="text-slate-500 text-xs uppercase font-bold tracking-wider">Model Bias Matrix</p>
                 <p className="text-slate-400 text-xs font-medium mb-5 mt-0.5">Each brand&apos;s visibility in each AI model. Spot which models favor which brand.</p>
@@ -551,6 +565,7 @@ export default function ComparePage() {
                   </table>
                 </div>
               </div>
+              </Reveal>
             )}
 
             {/* Highlights Bento grid */}

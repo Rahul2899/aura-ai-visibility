@@ -294,6 +294,34 @@ def test_probe_detail_nonexistent_brand_404(client):
     assert r.status_code in (404, 422)
 
 
+def test_probe_responses_structure(client):
+    # Surfaces the verbatim model answers behind each probe (the "what AI actually said"
+    # reveal). Backed by stored Run.response_text + Mention.is_target_brand — real data.
+    r = client.get(f"/brands/{EXAMPLE_BRAND_ID}/probe-responses")
+    assert r.status_code == 200
+    data = r.json()
+    assert "probes" in data
+    for p in data["probes"]:
+        assert "question" in p
+        assert "responses" in p and isinstance(p["responses"], list)
+        for m in p["responses"]:
+            assert "model" in m
+            assert "response_text" in m and isinstance(m["response_text"], str)
+            assert "brand_found" in m and isinstance(m["brand_found"], bool)
+
+
+def test_probe_responses_nonexistent_brand_404(client):
+    r = client.get("/brands/99999/probe-responses")
+    assert r.status_code in (404, 422)
+
+
+def test_probe_responses_idor_blocked(client):
+    # A private brand owned by another session must not leak its model answers.
+    created = client.post("/brands", json={"name": "RespCo", "session_id": "sess_resp_owner"})
+    bid = created.json()["id"]
+    assert client.get(f"/brands/{bid}/probe-responses").status_code in (403, 404)
+
+
 def test_dark_matter_structure(client):
     r = client.get(f"/brands/{EXAMPLE_BRAND_ID}/dark-matter")
     assert r.status_code == 200
