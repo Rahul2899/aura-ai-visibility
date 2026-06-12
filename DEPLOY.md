@@ -4,7 +4,7 @@ Manual, watched cutover for the first deploy. Once this succeeds, the GitHub
 Actions workflow (`.github/workflows/deploy.yml`) can automate it.
 
 **Infra:** EC2 t2.micro, Ubuntu 22.04, Docker Compose. DuckDNS
-`ai-visibility.duckdns.org` → Elastic IP. Caddy is the only public entry
+`your-app.duckdns.org` → Elastic IP. Caddy is the only public entry
 (`:80` + `:443`); `app` and `db` are internal-only.
 
 ---
@@ -52,8 +52,8 @@ POSTGRES_DB=peec
 # DATABASE_URL is overridden by docker-compose to use the db service host.
 
 # HTTPS + CORS — set to the real domain so Caddy provisions a TLS cert
-SITE_ADDRESS=ai-visibility.duckdns.org
-ALLOWED_ORIGINS=https://ai-visibility.duckdns.org
+SITE_ADDRESS=your-app.duckdns.org
+ALLOWED_ORIGINS=https://your-app.duckdns.org
 NEXT_PUBLIC_API_URL=/api
 AUTO_SEED_AUDITS=true
 ```
@@ -80,7 +80,7 @@ and :80/:443 open).
 
 ## 4. Verify (browser + shell)
 
-1. `https://ai-visibility.duckdns.org` loads with a valid cert; `http://` redirects.
+1. `https://your-app.duckdns.org` loads with a valid cert; `http://` redirects.
 2. The 4 example brands show with real scores.
 3. Add a brand → audit completes, live feed streams, 4 models respond, 0 Bedrock errors.
 4. `https://…/?admin=<NEW_ADMIN_KEY>` → "ADMIN · unlimited"; create a brand works.

@@ -3,7 +3,7 @@ import structlog
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.api.auth import is_admin, limit_key, require_owner_or_admin
 from src.api.ratelimit import client_ip
@@ -18,6 +18,22 @@ log = structlog.get_logger()
 class AuditRequest(BaseModel):
     custom_questions: list[str] = []
     category: str | None = None  # user-confirmed category from the preview step (optional)
+
+    # Defense-in-depth caps on attacker-controlled input that flows into LLM prompts.
+    # Bounds the payload (no huge-body parsing) and the per-question length (a long
+    # prompt-injection string can't bloat the prompt or run up Bedrock cost). The route
+    # still strips + slices to 5; these reject abusive payloads at the schema boundary.
+    @field_validator("custom_questions")
+    @classmethod
+    def _cap_questions(cls, v: list[str]) -> list[str]:
+        if len(v) > 20:
+            raise ValueError("Too many custom questions (max 20).")
+        return [q[:500] for q in v]
+
+    @field_validator("category")
+    @classmethod
+    def _cap_category(cls, v: str | None) -> str | None:
+        return v[:120] if v else v
 
 router = APIRouter(prefix="/audit")
 

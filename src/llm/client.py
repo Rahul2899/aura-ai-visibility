@@ -27,7 +27,7 @@ class OpenRouterClient:
     async def complete(self, model: str, messages: list[dict], max_retries: int = 3) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": "https://github.com/Rahul2899/aura-ai-visibility",
+            "HTTP-Referer": "https://aura-ai.app",
         }
         payload = {"model": model, "messages": messages}
 

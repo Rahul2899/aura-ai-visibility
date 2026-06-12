@@ -26,8 +26,8 @@ BASE = os.environ.get("API_BASE", "http://localhost:8000")
 FRONTEND = os.environ.get("FRONTEND_BASE", "http://localhost:3000")
 
 # Seeded example brand IDs (from db_seed.py)
-EXAMPLE_BRAND_ID = 1004   # Greenhouse
-EXAMPLE_BRAND_ID_2 = 1005  # Lever
+EXAMPLE_BRAND_ID = 1004   # Notion
+EXAMPLE_BRAND_ID_2 = 1005  # Lindt
 
 
 @pytest.fixture(scope="module")
@@ -103,7 +103,8 @@ def test_compare_visibility_in_valid_range(client):
 def test_compare_expected_brands_present(client):
     brands = client.get("/brands/compare").json()
     names = [b["name"].lower() for b in brands]
-    for expected in ["workday", "greenhouse", "lever", "ashby"]:
+    # Demo brands span four different industries (see src/db_seed.py).
+    for expected in ["notion", "lindt", "wise", "nike"]:
         assert any(expected in n for n in names), f"Expected example brand '{expected}' missing"
 
 
