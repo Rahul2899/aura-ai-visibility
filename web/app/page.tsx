@@ -400,12 +400,12 @@ export default function Home() {
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
         {/* Hero — tell a first-time visitor exactly what this is */}
         <Reveal>
-          <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3 px-1">
+          <section className="hero-glow text-center max-w-2xl mx-auto pt-5 sm:pt-8 pb-2 space-y-3 px-1">
             <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
               AI Brand Visibility
             </span>
             <h1 className="display text-2xl leading-[1.15] sm:text-5xl sm:leading-[1.05] text-slate-900 px-2 text-balance break-words">
-              See how often AI models recommend your brand
+              See how often AI models <span className="text-gradient">recommend</span> your brand
             </h1>
             <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
               When buyers ask AI assistants for recommendations, does your brand show up? Aura runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.

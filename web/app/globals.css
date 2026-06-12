@@ -132,14 +132,15 @@ textarea:focus-visible {
 /* Premium Card Elements — warm white on ivory, soft layered warm shadow. */
 .card {
   background: #ffffff;
-  border: 1px solid #ece6da;
+  border: 1px solid #e8eaf0;
   border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(60, 50, 35, 0.04), 0 6px 20px -8px rgba(60, 50, 35, 0.10);
-  transition: border-color 0.15s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 1px 2px rgba(20, 23, 33, 0.04), 0 6px 20px -8px rgba(20, 23, 33, 0.08);
+  transition: border-color 0.18s ease, box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .card:hover {
-  border-color: #e0d8c7;
-  box-shadow: 0 2px 4px rgba(60, 50, 35, 0.05), 0 12px 32px -10px rgba(60, 50, 35, 0.16);
+  border-color: #d8dce8;
+  box-shadow: 0 2px 6px rgba(20, 23, 33, 0.05), 0 18px 40px -12px rgba(24, 99, 220, 0.14);
+  transform: translateY(-2px);
 }
 
 /* CTA card — brass border + warm glow draws the eye to the primary action */
@@ -266,6 +267,41 @@ h1, h2, h3, h4 {
   line-height: 1.05;
 }
 
-/* Brass text accent helper. */
+/* Accent text helpers. */
 .text-accent { color: var(--accent); }
 .text-accent-2 { color: var(--accent-2); }
+
+/* Premium hero glow — a soft radial bloom of the accent behind the headline, plus a
+   second faint one, giving the hero depth without a flat background. Slowly breathes. */
+.hero-glow { position: relative; isolation: isolate; }
+.hero-glow::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: -10%;
+  width: 680px; height: 420px;
+  max-width: 120vw;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(closest-side, rgba(24, 99, 220, 0.13), transparent 70%),
+    radial-gradient(closest-side at 30% 40%, rgba(91, 69, 224, 0.10), transparent 70%);
+  filter: blur(8px);
+  z-index: -1;
+  pointer-events: none;
+  animation: heroBreathe 9s ease-in-out infinite;
+}
+@keyframes heroBreathe {
+  0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
+  50%       { opacity: 1; transform: translateX(-50%) scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-glow::before { animation: none; }
+}
+
+/* Gradient text for the accent word in the hero (premium typographic touch). */
+.text-gradient {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2) 60%, #5b45e0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
