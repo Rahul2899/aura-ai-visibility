@@ -39,6 +39,10 @@ router = APIRouter(prefix="/audit")
 
 _jobs: dict = {}
 _job_counter = 0
+# "session::batch_id" keys that have already been charged one audit credit, so the rest
+# of a comparison's brand audits run free. In-memory is fine: a batch is short-lived and
+# the worst case of a process restart is one comparison costing an extra credit.
+_charged_batches: set[str] = set()
 
 
 async def _refund_audit_slot(rate_key: str | None):
@@ -129,6 +133,8 @@ async def start_audit(
     request: Request,
     body: AuditRequest = None,
     session_id: str = None,
+    batch_id: str = None,  # Compare runs several brands as ONE comparison — they share a
+                           # batch_id so the whole comparison costs a single audit credit.
     x_admin_key: str = Header(None),
 ):
     rate_key = None  # set for non-admins; passed to the job so it can refund on no-result
@@ -148,10 +154,20 @@ async def start_audit(
             detail="An audit for this brand is already running. Please wait for it to finish.",
         )
 
+    # A comparison audits several brands but must cost the user only ONE credit. All
+    # brands in one comparison send the same batch_id; we charge the limit for the FIRST
+    # request of a batch and skip it for the rest. (Per session+batch so it can't be
+    # abused to bypass the limit across separate comparisons.)
+    batch_already_charged = False
+    if batch_id:
+        batch_key = f"{session_id or client_ip(request)}::{batch_id}"
+        batch_already_charged = batch_key in _charged_batches
+        _charged_batches.add(batch_key)
+
     # Enforce the per-session audit limit. The increment happens HERE (at request time),
     # so a queued/running audit already counts — a 3rd request while 2 are in flight is
     # blocked even before any result lands.
-    if not is_admin(session_id, x_admin_key):
+    if not is_admin(session_id, x_admin_key) and not batch_already_charged:
         key = rate_key = limit_key(session_id, client_ip(request))
         async with SessionLocal() as session:
             # Atomic upsert + increment. Two audits firing at once for the same key

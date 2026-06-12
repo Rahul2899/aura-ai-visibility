@@ -150,6 +150,9 @@ export default function ComparePage() {
     setJobs({});
     setData([]);
 
+    // One comparison = one audit credit. All brands in this run share a batch_id, so the
+    // backend charges the limit once (for the first) and runs the rest free.
+    const batchId = `cmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     // Fire all audits simultaneously, skip any that fail
     const jobMap: Record<number, string> = {};
     await Promise.all(selected.map(async (brandId) => {
@@ -157,7 +160,7 @@ export default function ComparePage() {
         const sess = getSessionId();
         const hdrs: Record<string, string> = {};
         if (sess === "admin") hdrs["X-Admin-Key"] = getAdminKey();
-        const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, { method: "POST", headers: hdrs });
+        const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}&batch_id=${batchId}`, { method: "POST", headers: hdrs });
         if (!res.ok) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: `HTTP ${res.status}` } })); return; }
         const { job_id } = await res.json();
         if (!job_id) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: "No job ID returned" } })); return; }
@@ -191,6 +194,16 @@ export default function ComparePage() {
         if (allDone) {
           clearInterval(pollId);
           setRunning(false);
+          // Record which brands failed vs succeeded so the dashboard can show a clear
+          // "Audit failed — retry" state instead of leaving them looking untouched.
+          try {
+            const failed = new Set<number>(JSON.parse(localStorage.getItem("aura_failed_audits") || "[]"));
+            for (const [bid, st] of Object.entries(updates)) {
+              if (st.status === "failed") failed.add(Number(bid));
+              else if (st.status === "completed") failed.delete(Number(bid));
+            }
+            localStorage.setItem("aura_failed_audits", JSON.stringify([...failed]));
+          } catch { /* non-critical */ }
           await loadComparison();
         }
       } catch { clearInterval(pollId); setRunning(false); }

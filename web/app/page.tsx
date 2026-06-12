@@ -229,6 +229,10 @@ export default function Home() {
   // the DB (one user must not wipe the demo for everyone). Instead a user can DISMISS
   // them from their own dashboard — stored per-browser in localStorage. Restorable.
   const [dismissedDemo, setDismissedDemo] = useState<Set<number>>(new Set());
+  // Brands whose most recent audit FAILED (recorded by the audit/compare flow in
+  // localStorage). Used to show a clear "Audit failed — retry" state instead of leaving
+  // them looking like they were never touched in the "Unaudited" list.
+  const [failedAudits, setFailedAudits] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [name, setName] = useState("");
@@ -298,9 +302,26 @@ export default function Home() {
         const raw = localStorage.getItem("aura_dismissed_demo");
         if (raw) setDismissedDemo(new Set(JSON.parse(raw) as number[]));
       } catch { /* ignore malformed */ }
+      try {
+        const raw = localStorage.getItem("aura_failed_audits");
+        if (raw) setFailedAudits(new Set(JSON.parse(raw) as number[]));
+      } catch { /* ignore malformed */ }
     }
     load();
   }, [load]);
+
+  // Once a brand has a score, it's no longer "failed" — prune it from the failed set.
+  useEffect(() => {
+    if (failedAudits.size === 0 || brands.length === 0) return;
+    const stillFailed = new Set([...failedAudits].filter(id => {
+      const b = brands.find(x => x.id === id);
+      return b && b.visibility_pct === null;  // keep only unaudited failures
+    }));
+    if (stillFailed.size !== failedAudits.size) {
+      setFailedAudits(stillFailed);
+      localStorage.setItem("aura_failed_audits", JSON.stringify([...stillFailed]));
+    }
+  }, [brands, failedAudits]);
 
   function dismissDemo(id: number) {
     setDismissedDemo(prev => {
@@ -820,13 +841,20 @@ export default function Home() {
                   <p className="text-slate-500 text-xs mt-0.5 font-semibold">Runs queued or waiting for execution</p>
                 </div>
                 <div className="flex flex-col gap-2.5">
-                  {pending.map(b => (
+                  {pending.map(b => {
+                    const failed = failedAudits.has(b.id);
+                    return (
                     <div key={b.id} className="relative group">
-                      <Link href={`/brands/${b.id}`} className="block">
-                        <div className="flex items-center justify-between p-3.5 pr-14 rounded-xl border border-dashed border-slate-300 hover:border-[var(--accent)]/40 hover:bg-[var(--accent-dim)] transition-all cursor-pointer">
-                          <span className="text-slate-700 text-sm font-bold truncate max-w-28">{b.name}</span>
-                          <span className="text-[var(--accent-2)] text-xs font-bold flex items-center gap-1">
-                            Run Audit <ArrowRight className="w-3.5 h-3.5 text-[var(--accent-2)]" />
+                      <Link href={`/brands/${b.id}?autostart=1`} className="block">
+                        <div className={`flex items-center justify-between p-3.5 pr-14 rounded-xl border border-dashed transition-all cursor-pointer ${
+                          failed ? "border-red-300 bg-red-50/40 hover:bg-red-50" : "border-slate-300 hover:border-[var(--accent)]/40 hover:bg-[var(--accent-dim)]"
+                        }`}>
+                          <span className="text-slate-700 text-sm font-bold truncate max-w-28 flex items-center gap-1.5">
+                            {failed && <span className="text-red-500" title="Last audit failed">⚠</span>}
+                            {b.name}
+                          </span>
+                          <span className={`text-xs font-bold flex items-center gap-1 ${failed ? "text-red-600" : "text-[var(--accent-2)]"}`}>
+                            {failed ? "Retry audit" : "Run Audit"} <ArrowRight className={`w-3.5 h-3.5 ${failed ? "text-red-600" : "text-[var(--accent-2)]"}`} />
                           </span>
                         </div>
                       </Link>
@@ -841,7 +869,7 @@ export default function Home() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}

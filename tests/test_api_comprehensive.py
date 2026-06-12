@@ -365,6 +365,22 @@ def test_audit_example_brand_blocked(client):
     assert "example" in r.json().get("detail", "").lower()
 
 
+def test_compare_batch_costs_one_credit(client):
+    """A comparison audits several brands but must cost the user only ONE audit credit:
+    all brands share a batch_id and the limit is charged once."""
+    import uuid
+    sess = f"sess_batch_{uuid.uuid4().hex[:8]}"
+    b1 = client.post("/brands", json={"name": "BatchOne", "domain": "stripe.com", "session_id": sess}).json()["id"]
+    b2 = client.post("/brands", json={"name": "BatchTwo", "domain": "wise.com", "session_id": sess}).json()["id"]
+    batch = f"cmp_{uuid.uuid4().hex[:8]}"
+    r1 = client.post(f"/audit/brands/{b1}?session_id={sess}&batch_id={batch}", json={})
+    r2 = client.post(f"/audit/brands/{b2}?session_id={sess}&batch_id={batch}", json={})
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.status_code, r2.status_code)
+    # Both audits started, but only ONE credit was consumed.
+    status = client.get(f"/audit/limit-status?session_id={sess}").json()
+    assert status["count"] == 1, f"comparison should cost 1 credit, got {status['count']}"
+
+
 def test_job_status_nonexistent_404(client):
     r = client.get("/audit/fake-job-id-does-not-exist")
     assert r.status_code in (404, 422)
