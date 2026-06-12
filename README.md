@@ -38,6 +38,22 @@ This separation is what makes the score honest.
 
 ---
 
+## From "what" to "how to fix it"
+
+A score with no action is a vanity metric. So beyond measuring, Aura tells you **why** you lost and **what to do** — grounded in real evidence, not generic advice.
+
+For every question where a brand was (mostly) invisible, the audit captures the competitors the models recommended instead and the verbatim answers explaining *why*. A focused model pass then reads only that real evidence and surfaces the pattern + the concrete fix — bound to cite nothing outside the captured answers.
+
+The result is specific and different for every brand. A real example (Brevo, email marketing):
+
+> **Gap:** Shopify integration depth and ecommerce-native positioning
+> **Why:** The AI named *Klaviyo* as the "top choice" for "deep, native integration" and "proven ROI" with Shopify; Brevo wasn't mentioned.
+> **Action:** Document Brevo's Shopify integration (real-time sync, cart abandonment, segmentation) and publish a side-by-side comparison with Klaviyo.
+
+No template could produce that — it comes from the model's own words about why a competitor won. This closes the loop: **measure → understand why → act → re-audit to see if it moved.**
+
+---
+
 ## Architecture
 
 ```mermaid

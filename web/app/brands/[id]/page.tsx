@@ -12,7 +12,7 @@ import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
 import { Reveal } from "../../components/Reveal";
 import { getSessionId, getAdminKey } from "../../lib/session";
-import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare } from "lucide-react";
+import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare, Lightbulb, Target } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -341,6 +341,59 @@ export default function BrandPage() {
                 </div>
               );
             })()}
+
+            {/* How to improve — evidence-grounded, per-brand recommendations. The "why" is
+                drawn from the real AI answers where competitors won; not generic advice. */}
+            {latest.recommendations?.length > 0 && (
+              <div className="card p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-6 h-6 rounded-md bg-[var(--accent-dim)] flex items-center justify-center">
+                    <Lightbulb className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  </div>
+                  <h2 className="text-slate-900 font-bold text-sm">How to improve {brand.name}&apos;s AI visibility</h2>
+                </div>
+                <p className="text-slate-400 text-xs mb-5 pl-8">
+                  Why competitors won the questions you lost — read from the AI&apos;s own answers — and the highest-leverage fixes.
+                </p>
+                <div className="space-y-4">
+                  {latest.recommendations.map((r: any, i: number) => (
+                    <div key={i} className="rounded-xl border p-4" style={{ borderColor: "var(--border-solid)", background: "var(--surface-2-solid)" }}>
+                      <div className="flex items-start gap-3">
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--accent)] text-white text-xs font-extrabold flex items-center justify-center mt-0.5">
+                          {r.priority ?? i + 1}
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <p className="text-sm font-bold text-slate-800 leading-snug">{r.gap}</p>
+                          {r.why && (
+                            <p className="text-xs text-slate-600 leading-relaxed">
+                              <span className="font-bold text-slate-500 uppercase tracking-wide text-[10px]">Why · </span>
+                              {r.why}
+                            </p>
+                          )}
+                          {r.action && (
+                            <div className="flex items-start gap-1.5 rounded-lg px-3 py-2" style={{ background: "var(--accent-dim)" }}>
+                              <Target className="w-3.5 h-3.5 text-[var(--accent-2)] flex-shrink-0 mt-0.5" />
+                              <p className="text-xs font-bold leading-relaxed" style={{ color: "var(--accent-2)" }}>{r.action}</p>
+                            </div>
+                          )}
+                          {r.competitors?.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">Lost to</span>
+                              {r.competitors.map((c: string, j: number) => (
+                                <span key={j} className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{c}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-4 leading-relaxed">
+                  AI responses are non-deterministic, so we can&apos;t guarantee the score moves — but these are the gaps with the clearest evidence. Re-audit after acting to see the change.
+                </p>
+              </div>
+            )}
 
             {modelBias.models?.length > 0 && (
               <div className="card p-6">

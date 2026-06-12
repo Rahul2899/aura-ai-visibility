@@ -248,6 +248,14 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
         extraction = await extract_mentions(client, model, result["text"])
         target_mention = next((m for m in extraction.mentions if _brand_matches(target_brand, m.brand_name)), None)
         mentioned = target_mention is not None
+        # Capture the COMPETITORS the model named (everyone who isn't the target). This is
+        # the evidence that powers the "why competitors won / how to improve" feature — the
+        # live audit previously discarded it. Keep name, position, and any cited URLs.
+        competitors = [
+            {"name": m.brand_name, "position": m.position, "cited_urls": list(getattr(m, "cited_urls", []) or [])}
+            for m in extraction.mentions
+            if not _brand_matches(target_brand, m.brand_name)
+        ]
         if on_event:
             on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
         return {
@@ -258,6 +266,7 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             # the "what each AI actually said" reveal (proves results aren't hallucinated).
             "response_text": result["text"],
             "brand_position": target_mention.position if target_mention else None,
+            "competitors": competitors,
         }
     except Exception as e:
         log.warning("probe_model_error", model=model, error=str(e))
@@ -361,6 +370,18 @@ async def _persist_responses(session: AsyncSession, brand_id: int, prompt_text: 
                 run_id=run.id, brand_name="(target)",
                 position=r.get("brand_position") or 0,
                 sentiment=SentimentEnum.neutral, is_target_brand=True, cited_urls=[],
+            ))
+        # Persist the competitors this model named (evidence for the "how to improve"
+        # feature). Cap at 6 per run so a chatty answer can't bloat the table.
+        for comp in (r.get("competitors") or [])[:6]:
+            name = (comp.get("name") or "").strip()[:255]
+            if not name:
+                continue
+            session.add(Mention(
+                run_id=run.id, brand_name=name,
+                position=comp.get("position") or 0,
+                sentiment=SentimentEnum.neutral, is_target_brand=False,
+                cited_urls=(comp.get("cited_urls") or [])[:5],
             ))
 
 
@@ -560,6 +581,65 @@ async def _generate_analysis(bedrock, brand_name: str, visibility_pct: float, pr
         return {"summary": f"{brand_name} scored {visibility_pct}% AI visibility across probes.", "key_findings": []}
 
 
+RECOMMENDATIONS_PROMPT = """You are an AI-search visibility strategist. A brand was INVISIBLE on certain buyer questions — competitors got recommended instead. You are given, for each lost question: the competitors the AI named, and EXCERPTS of the AI's actual answer explaining why it picked them.
+
+Your ONLY job is to read that real evidence and surface the pattern + the concrete fix.
+
+ABSOLUTE RULES — credibility depends on this:
+- Use ONLY facts present in the supplied evidence. Cite ONLY competitors and reasons that actually appear in the answer excerpts. NEVER invent a competitor, a reason, a statistic, or a source.
+- Every recommendation must point to a SPECIFIC pattern you can see across the evidence (e.g. the AI repeatedly praised winners for X, which the brand isn't associated with).
+- The action must be concrete and follow directly from that pattern — not generic ("improve SEO", "create content", "engage on social" are BANNED).
+- If the evidence is too thin to ground a specific reason (e.g. no competitors captured), say so honestly in one recommendation rather than inventing.
+
+Return ONLY JSON: {"recommendations": [ {"priority": 1, "gap": "...", "why": "...", "action": "...", "competitors": ["..."]} ]}.
+- 2 to 4 recommendations, ranked by leverage (most-lost / strongest-competitor first).
+- gap: the theme of questions lost, max 14 words.
+- why: what the AI rewarded the winners for, grounded in the excerpts, max 30 words. Name the real competitors.
+- action: the specific, concrete next step, max 24 words.
+- competitors: the real competitor names from the evidence for this gap.
+No prose, no markdown fences."""
+
+
+async def _generate_recommendations(bedrock, brand_name: str, industry: str | None,
+                                    lost_evidence: list[dict]) -> list[dict]:
+    """Read the REAL losing-query evidence (competitors who won + verbatim answer excerpts)
+    and extract per-brand, grounded recommendations. The evidence is gathered deterministically
+    by the caller; the LLM only reasons over it, bound to cite nothing outside it. Returns []
+    on any failure (recommendations are additive — never break an audit)."""
+    if not lost_evidence:
+        return []
+    payload = {"brand": brand_name, "industry": industry or "unknown", "lost_questions": lost_evidence}
+    try:
+        resp = await asyncio.to_thread(
+            lambda: bedrock.converse(
+                modelId=ORCHESTRATOR_MODEL,
+                system=[{"text": RECOMMENDATIONS_PROMPT}],
+                messages=[{"role": "user", "content": [{"text": json.dumps(payload)[:14000]}]}],
+                inferenceConfig={"maxTokens": 1400, "temperature": 0.2},
+            )
+        )
+        raw = resp["output"]["message"]["content"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].removeprefix("json").strip()
+        recs = json.loads(raw).get("recommendations", [])
+        # Keep only well-formed recs; cap length defensively.
+        clean = []
+        for i, r in enumerate(recs[:4], 1):
+            if not isinstance(r, dict) or not r.get("action"):
+                continue
+            clean.append({
+                "priority": r.get("priority", i),
+                "gap": str(r.get("gap", ""))[:140],
+                "why": str(r.get("why", ""))[:280],
+                "action": str(r.get("action", ""))[:240],
+                "competitors": [str(c)[:80] for c in (r.get("competitors") or [])][:4],
+            })
+        return clean
+    except Exception as e:
+        log.warning("recommendations_failed", brand=brand_name, error=str(e))
+        return []
+
+
 async def _verify_entity(bedrock, name: str, industry: str | None, web_context: str) -> bool:
     """Cheap check: does the web_context actually describe a company called `name`
     (in `industry`, if given)? Guards against auditing a different same-named entity
@@ -699,6 +779,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     )
 
     probe_results = []
+    lost_evidence = []  # deterministic evidence for the "how to improve" feature
     for i, (q, raw) in enumerate(zip(questions, raw_per_question), 1):
         is_brand_direct = _brand_matches(target_brand, q)
         result, upsert_stmt = _persist_probe(session, brand_id, q, raw)
@@ -707,6 +788,28 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
         if not is_brand_direct:
             for model, mentioned in result.get("breakdown", {}).items():
                 model_hits.setdefault(model, []).append(mentioned == "yes")
+            # Gather REAL evidence on questions the brand was (mostly) invisible on — at
+            # most one model mentioned it — capturing the competitors that won + a verbatim
+            # winning answer. Computed deterministically; the LLM only reasons over it later.
+            succeeded = [r for r in raw if not r.get("failed")]
+            mentions_here = sum(1 for r in succeeded if r.get("mentioned"))
+            if succeeded and mentions_here <= 1 and mentions_here < len(succeeded):
+                comps = {}
+                for r in succeeded:
+                    for c in (r.get("competitors") or []):
+                        nm = (c.get("name") or "").strip()
+                        if nm:
+                            comps[nm] = comps.get(nm, 0) + 1
+                top_comps = [n for n, _ in sorted(comps.items(), key=lambda x: -x[1])[:5]]
+                # Representative excerpt: the richest answer from a model that did NOT name
+                # the brand (a genuine competitor-win answer explaining why).
+                excerpt = ""
+                losers = [r for r in succeeded if not r.get("mentioned") and r.get("response_text")]
+                cand = max(losers, key=lambda r: len(r["response_text"]), default=None)
+                if cand:
+                    excerpt = cand["response_text"][:600]
+                if top_comps:
+                    lost_evidence.append({"question": q, "winners": top_comps, "ai_answer_excerpt": excerpt})
         probe_results.append({
             "question": q, "visibility_pct": result["visibility_pct"],
             "models": result.get("breakdown", {}), "scored": not is_brand_direct,
@@ -728,11 +831,20 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
 
     analysis = await _generate_analysis(bedrock, target_brand, visibility_pct, probe_results)
 
+    # "How to improve": read the real losing-query evidence (winners + verbatim answers)
+    # and surface grounded, per-brand recommendations. Additive — never blocks the audit.
+    recommendations = []
+    if lost_evidence:
+        emit("Analyzing why competitors won…")
+        recommendations = await _generate_recommendations(
+            bedrock, target_brand, brand.industry if brand else None, lost_evidence[:6]
+        )
+
     insight = Insight(
         brand_id=brand_id,
         summary=analysis["summary"],
         key_findings=analysis.get("key_findings", []),
-        recommendations=[],  # Aura measures visibility; it does not advise. Column kept to avoid a migration.
+        recommendations=recommendations,
         probe_count=len(questions),
         visibility_pct=visibility_pct,
         model_breakdown=model_breakdown,

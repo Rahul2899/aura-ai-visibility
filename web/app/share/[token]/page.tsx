@@ -14,7 +14,7 @@ type Report = {
     visibility_pct: number;
     summary: string;
     key_findings: string[];
-    recommendations: string[];
+    recommendations: { priority?: number; gap: string; why?: string; action?: string; competitors?: string[] }[];
     model_breakdown: Record<string, number>;
     probe_count: number;
     created_at: string;
@@ -94,6 +94,27 @@ export default function SharedReportPage() {
                       <p className="text-sm text-slate-700 font-semibold leading-relaxed">{f}</p>
                     </div>;
                   })}
+                </div>
+              </div>
+            )}
+
+            {ins.recommendations?.length > 0 && (
+              <div className="card p-6">
+                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-1">How to improve</p>
+                <p className="text-slate-400 text-xs mb-4">Why competitors won the lost questions — from the AI&apos;s own answers — and the fixes.</p>
+                <div className="space-y-3">
+                  {ins.recommendations.map((r, i) => (
+                    <div key={i} className="rounded-xl border p-4" style={{ borderColor: "var(--border-solid)", background: "var(--surface-2-solid)" }}>
+                      <div className="flex items-start gap-3">
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--accent)] text-white text-xs font-extrabold flex items-center justify-center mt-0.5">{r.priority ?? i + 1}</span>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <p className="text-sm font-bold text-slate-800 leading-snug">{r.gap}</p>
+                          {r.why && <p className="text-xs text-slate-600 leading-relaxed"><span className="font-bold text-slate-500 uppercase tracking-wide text-[10px]">Why · </span>{r.why}</p>}
+                          {r.action && <div className="rounded-lg px-3 py-2 text-xs font-bold leading-relaxed" style={{ background: "var(--accent-dim)", color: "var(--accent-2)" }}>{r.action}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
