@@ -12,6 +12,7 @@ import VisibilityChart from "./VisibilityChart";
 import ModelGrid from "../../components/ModelGrid";
 import { Reveal } from "../../components/Reveal";
 import { getSessionId, getAdminKey } from "../../lib/session";
+import { domainMatchesBrand } from "../../lib/brands";
 import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare, Lightbulb, Target } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -202,7 +203,7 @@ export default function BrandPage() {
           <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
           <div className="relative w-6 h-6 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
             <span className="text-[9px] font-bold text-slate-600 uppercase">{brand.name.slice(0, 2)}</span>
-            {brand.domain && (
+            {domainMatchesBrand(brand.name, brand.domain) && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={`https://www.google.com/s2/favicons?domain=${brand.domain}&sz=64`} alt=""
                 className="absolute inset-0 w-full h-full object-contain bg-white"

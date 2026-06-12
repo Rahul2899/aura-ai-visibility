@@ -608,6 +608,13 @@ async def _generate_recommendations(bedrock, brand_name: str, industry: str | No
     on any failure (recommendations are additive — never break an audit)."""
     if not lost_evidence:
         return []
+    # The ground truth: every competitor name that ACTUALLY appeared in the captured
+    # evidence. The model is told to cite only these, but we ENFORCE it below — any
+    # competitor it lists that isn't in this real set is dropped (no fabrication reaches
+    # the user). Matching is case-insensitive on normalized names.
+    def _norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+    real_competitors = {_norm(w) for ev in lost_evidence for w in ev.get("winners", [])}
     payload = {"brand": brand_name, "industry": industry or "unknown", "lost_questions": lost_evidence}
     try:
         resp = await asyncio.to_thread(
@@ -627,12 +634,16 @@ async def _generate_recommendations(bedrock, brand_name: str, industry: str | No
         for i, r in enumerate(recs[:4], 1):
             if not isinstance(r, dict) or not r.get("action"):
                 continue
+            # GROUNDING ENFORCEMENT: keep only competitors that truly appeared in the
+            # captured evidence. Drops any name the model invented or mis-attached.
+            verified_comps = [str(c)[:80] for c in (r.get("competitors") or [])
+                              if _norm(str(c)) in real_competitors][:4]
             clean.append({
                 "priority": r.get("priority", i),
                 "gap": str(r.get("gap", ""))[:140],
                 "why": str(r.get("why", ""))[:280],
                 "action": str(r.get("action", ""))[:240],
-                "competitors": [str(c)[:80] for c in (r.get("competitors") or [])][:4],
+                "competitors": verified_comps,
             })
         return clean
     except Exception as e:

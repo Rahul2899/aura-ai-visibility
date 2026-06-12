@@ -6,7 +6,7 @@ import ComparisonChart from "./components/ComparisonChart";
 import MagneticCursor from "./components/MagneticCursor";
 import { Reveal, CountUp } from "./components/Reveal";
 import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey, exitAdmin } from "./lib/session";
-import { createBrand, validateBrand } from "./lib/brands";
+import { createBrand, validateBrand, domainMatchesBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
 import {
   Sparkles,
@@ -602,8 +602,9 @@ export default function Home() {
                         <div className="col-span-7 sm:col-span-5 flex items-center gap-3 min-w-0">
                           <div className="relative w-7 h-7 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
                             <span className="text-[10px] font-bold text-slate-600 uppercase">{b.name.slice(0, 2)}</span>
-                            {b.domain && (
-                              // Favicon over the monogram; hides itself on load error to reveal the monogram.
+                            {/* Only show the favicon when the domain plausibly matches the
+                                brand — otherwise a wrong/typo'd domain shows the wrong logo. */}
+                            {domainMatchesBrand(b.name, b.domain) && (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={`https://www.google.com/s2/favicons?domain=${b.domain}&sz=64`}

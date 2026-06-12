@@ -6,6 +6,23 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export type NewBrand = { name: string; domain?: string; industry?: string };
 
+// Does this domain plausibly belong to this brand? Guards against showing a logo that
+// doesn't match the brand (e.g. a user typed "Apple" with domain "wildcraft.com" → we
+// must NOT render the Wildcraft favicon next to "Apple"). Deterministic, no network:
+// trust the favicon only when the brand name and the domain's main label share a
+// meaningful token. Conservative — when unsure, the caller falls back to the monogram.
+export function domainMatchesBrand(name: string, domain: string | null | undefined): boolean {
+  if (!domain) return false;
+  const host = domain.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+  const label = host.split(".")[0];                 // "nike" from "nike.com"
+  const n = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const l = label.replace(/[^a-z0-9]/g, "");
+  if (!n || !l) return false;
+  const short = n.length <= l.length ? n : l;
+  const long = n.length <= l.length ? l : n;
+  return short.length >= 3 && long.includes(short);
+}
+
 export function validateBrand(name: string, domain?: string): string | null {
   const n = name.trim();
   if (n.length < 2) return "Brand name must be at least 2 characters.";
