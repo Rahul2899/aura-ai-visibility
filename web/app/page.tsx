@@ -375,7 +375,7 @@ export default function Home() {
             <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
               AI Brand Visibility
             </span>
-            <h1 className="display text-3xl sm:text-5xl text-slate-900 leading-[1.05]">
+            <h1 className="display text-[1.65rem] leading-[1.12] sm:text-5xl sm:leading-[1.05] text-slate-900 px-1 text-balance">
               See how often AI models recommend your brand
             </h1>
             <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
@@ -513,14 +513,14 @@ export default function Home() {
                 </div>
  
                 {/* Table header */}
-                <div className="grid grid-cols-12 px-6 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100 bg-slate-50/80">
+                <div className="grid grid-cols-12 px-4 sm:px-6 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100 bg-slate-50/80">
                   <div className="col-span-1">#</div>
-                  <div className="col-span-5">Brand</div>
-                  <div className="col-span-2 text-right">Score</div>
-                  <div className="col-span-2 text-right">Trend</div>
+                  <div className="col-span-7 sm:col-span-5">Brand</div>
+                  <div className="col-span-2 sm:col-span-2 text-right">Score</div>
+                  <div className="hidden sm:block col-span-2 text-right">Trend</div>
                   <div className="col-span-2 flex items-center justify-end">
                     <span className="w-7 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</span>
-                    <span className="w-16" />
+                    <span className="hidden sm:block w-16" />
                   </div>
                 </div>
 
@@ -534,7 +534,7 @@ export default function Home() {
                 <div className="divide-y divide-slate-50">
                   {filtered.filter(b => b.visibility_pct !== null).map((b, i) => (
                     <Link key={b.id} href={`/brands/${b.id}`} className="block">
-                      <div className="group grid grid-cols-12 px-6 py-3.5 items-center min-h-[60px] hover:bg-slate-50/70 transition-colors cursor-pointer">
+                      <div className="group grid grid-cols-12 px-4 sm:px-6 py-3.5 items-center min-h-[60px] hover:bg-slate-50/70 transition-colors cursor-pointer">
                         <div className="col-span-1 flex items-center">
                           {i === 0 ? (
                             <Trophy className="w-3.5 h-3.5 text-amber-400" />
@@ -542,7 +542,7 @@ export default function Home() {
                             <span className="text-xs font-semibold text-slate-400 tabular">{i + 1}</span>
                           )}
                         </div>
-                        <div className="col-span-5 flex items-center gap-3">
+                        <div className="col-span-7 sm:col-span-5 flex items-center gap-3 min-w-0">
                           <div className="relative w-7 h-7 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
                             <span className="text-[10px] font-bold text-slate-600 uppercase">{b.name.slice(0, 2)}</span>
                             {b.domain && (
@@ -556,10 +556,10 @@ export default function Home() {
                               />
                             )}
                           </div>
-                          <div>
-                            <p className="font-semibold text-sm text-slate-800 group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
-                              {b.name}
-                              <ChevronRight className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm text-slate-800 group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5 truncate">
+                              <span className="truncate">{b.name}</span>
+                              <ChevronRight className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                             </p>
                             {b.industry && (
                               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
@@ -569,7 +569,7 @@ export default function Home() {
                           </div>
                         </div>
                         <div className="col-span-2 flex justify-end"><ScoreChip pct={b.visibility_pct} /></div>
-                        <div className="col-span-2 flex justify-end"><TrendPill v={b.trend} /></div>
+                        <div className="hidden sm:flex col-span-2 justify-end"><TrendPill v={b.trend} /></div>
                         <div className="col-span-2 flex items-center justify-end">
                           {/* Fixed-width number cell so the count always lines up across rows,
                               regardless of the hover action buttons that follow. */}
