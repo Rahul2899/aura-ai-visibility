@@ -225,6 +225,10 @@ function TrendPill({ v }: { v: number | null }) {
 
 export default function Home() {
   const [brands, setBrands] = useState<BrandRow[]>([]);
+  // Demo (example) brands are shared across all users, so they can't be deleted from
+  // the DB (one user must not wipe the demo for everyone). Instead a user can DISMISS
+  // them from their own dashboard — stored per-browser in localStorage. Restorable.
+  const [dismissedDemo, setDismissedDemo] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [name, setName] = useState("");
@@ -289,9 +293,26 @@ export default function Home() {
         window.history.replaceState({}, "", window.location.pathname);
       }
       setAdmin(isAdminMode());
+      // Restore the user's dismissed demo brands (per-browser preference).
+      try {
+        const raw = localStorage.getItem("aura_dismissed_demo");
+        if (raw) setDismissedDemo(new Set(JSON.parse(raw) as number[]));
+      } catch { /* ignore malformed */ }
     }
     load();
   }, [load]);
+
+  function dismissDemo(id: number) {
+    setDismissedDemo(prev => {
+      const next = new Set(prev).add(id);
+      localStorage.setItem("aura_dismissed_demo", JSON.stringify([...next]));
+      return next;
+    });
+  }
+  function restoreDemos() {
+    setDismissedDemo(new Set());
+    localStorage.removeItem("aura_dismissed_demo");
+  }
 
   async function addBrand(e: React.FormEvent) {
     e.preventDefault();
@@ -317,7 +338,12 @@ export default function Home() {
 
   async function deleteBrand(id: number) {
     const targetBrand = brands.find(b => b.id === id);
-    if (targetBrand?.is_example) return;  // examples are protected (shared demo data)
+    // Demo brands are shared — dismiss from THIS browser instead of deleting from the DB.
+    if (targetBrand?.is_example) {
+      if (!confirm(`Hide the demo brand "${targetBrand?.name}" from your dashboard? You can restore demos anytime.`)) return;
+      dismissDemo(id);
+      return;
+    }
     if (!confirm(`Delete "${targetBrand?.name ?? "this brand"}" and all its data? This cannot be undone.`)) return;
     setDeleting(id);
     const sess = getSessionId();
@@ -330,11 +356,14 @@ export default function Home() {
     load();
   }
 
+  // Hide the user's dismissed demo brands everywhere on the dashboard.
+  const shown = brands.filter(b => !dismissedDemo.has(b.id));
+  const hasDismissedDemos = dismissedDemo.size > 0;
   const filtered = search
-    ? brands.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))
-    : brands;
+    ? shown.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))
+    : shown;
   const audited = filtered.filter(b => b.visibility_pct !== null);
-  const allAudited = brands.filter(b => b.visibility_pct !== null);
+  const allAudited = shown.filter(b => b.visibility_pct !== null);
   const sortedAudited = [...allAudited].sort((a, b) => (b.visibility_pct ?? 0) - (a.visibility_pct ?? 0));
   const avg = allAudited.length ? allAudited.reduce((s, b) => s + (b.visibility_pct ?? 0), 0) / allAudited.length : null;
   const best = sortedAudited[0] ?? null;
@@ -397,7 +426,7 @@ export default function Home() {
           <div className="card overflow-hidden">
             <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
               {[
-                { label: "Brands Tracked", value: brands.length.toString(), count: brands.length, suffix: "", sub: `${audited.length} audited` },
+                { label: "Brands Tracked", value: shown.length.toString(), count: shown.length, suffix: "", sub: `${audited.length} audited` },
                 { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", count: avg !== null ? avg : null, suffix: "%", sub: "across all brands", colored: avg },
                 { label: "Market Leader", value: best?.name ?? "—", count: null, suffix: "", sub: best ? `${best.visibility_pct?.toFixed(0)}% visibility` : "", colored: best?.visibility_pct },
               ].map(({ label, value, count, suffix, sub, colored }) => (
@@ -485,7 +514,14 @@ export default function Home() {
                 <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h2 className="font-bold text-lg text-slate-900">Tracked Brands</h2>
-                    <p className="text-slate-500 text-xs mt-0.5 font-semibold">Monitor visibility indexes across LLMs</p>
+                    <p className="text-slate-500 text-xs mt-0.5 font-semibold">
+                      Monitor visibility indexes across LLMs
+                      {hasDismissedDemos && (
+                        <button onClick={restoreDemos} className="ml-2 text-[var(--accent)] font-bold hover:underline">
+                          · Restore demo brands
+                        </button>
+                      )}
+                    </p>
                   </div>
                   {/* Search / actions bar */}
                   <div className="flex flex-col sm:flex-row gap-3">
@@ -585,19 +621,13 @@ export default function Home() {
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {b.is_example ? (
-                            <span title="Example brands are read-only" className="w-7 h-7 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-not-allowed">
-                              <Trash2 className="w-3.5 h-3.5 text-slate-200" />
-                            </span>
-                          ) : (
-                            <button onClick={e => { e.preventDefault(); deleteBrand(b.id); }}
-                              disabled={deleting === b.id}
-                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
-                              title="Delete brand"
-                              aria-label={`Delete ${b.name}`}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <button onClick={e => { e.preventDefault(); deleteBrand(b.id); }}
+                            disabled={deleting === b.id}
+                            className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                            title={b.is_example ? "Hide this demo brand from your dashboard" : "Delete brand"}
+                            aria-label={b.is_example ? `Hide demo brand ${b.name}` : `Delete ${b.name}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                           </div>
                         </div>
                       </div>
