@@ -28,7 +28,11 @@ async def _scrape_homepage(name: str, domain: str) -> str | None:
         log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
         return None
     try:
-        async with httpx.AsyncClient(timeout=6, follow_redirects=False) as client:
+        # Follow redirects: most real sites 301 the apex domain to www/ or a region
+        # page (notion.so -> www.notion.so, lindt.com -> region). It's the brand's OWN
+        # domain (already SSRF-validated above), so following its redirect is safe and
+        # correct — without this, any site that redirects fails confirmation entirely.
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, max_redirects=5) as client:
             r = await client.get(safe_url, headers={"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"})
         if r.status_code == 200:
             summary = extract_page_signal(r.text)
