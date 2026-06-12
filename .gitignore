@@ -50,3 +50,6 @@ scratch/
 .playwright-mcp/
 .understand-anything/tmp/
 .understand-anything/intermediate/
+
+# Marketing assets (local-only, not for the public repo)
+marketing/
