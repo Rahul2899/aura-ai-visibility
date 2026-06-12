@@ -3,7 +3,9 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-peec}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-peec}
+      # Required — no weak default. Compose errors out if POSTGRES_PASSWORD is unset,
+      # so the stack can never silently boot with a guessable password. Set it in .env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (see .env.example)}
       POSTGRES_DB: ${POSTGRES_DB:-peec}
     # Port 5432 intentionally NOT exposed externally
     expose:
@@ -22,7 +24,7 @@ services:
     env_file: .env
     environment:
       # Overrides DATABASE_URL from .env to use the db service hostname
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-peec}:${POSTGRES_PASSWORD:-peec}@db:5432/${POSTGRES_DB:-peec}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-peec}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/${POSTGRES_DB:-peec}
     # Port 8000 intentionally NOT exposed externally — all traffic must go through Caddy
     expose:
       - "8000"

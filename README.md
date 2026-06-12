@@ -10,7 +10,7 @@ Aura AI measures that. It runs the questions a real buyer would ask across sever
 
 **Organic visibility** — the percentage of category buyer questions where a brand is mentioned *without being named in the question*. This is the number that matters: it reflects whether a model recommends you on its own, not whether it can echo a name you handed it.
 
-A worked example from the live demo (recruiting software):
+A worked example within a single category (recruiting software), which shows the score discriminating between an incumbent and a newcomer:
 
 | Brand | Visibility | Read |
 |---|---|---|
@@ -19,7 +19,7 @@ A worked example from the live demo (recruiting software):
 | Workday | 69% | Recognized, more enterprise-skewed |
 | Ashby | 0% | Newer/niche — not yet recommended for generic ATS queries |
 
-That 0%→81% spread is the point: the score discriminates. A tool that scored every brand ~90% would be measuring nothing.
+That 0%→81% spread is the point: the score discriminates. A tool that scored every brand ~90% would be measuring nothing. The live demo carries four brands across four different industries (SaaS, fintech, retail, and CPG) to show the audit works in any category.
 
 ---
 
@@ -122,6 +122,23 @@ The app applies its schema migrations on startup and seeds a small set of exampl
 > **Bedrock note:** the model IDs use the `eu.` cross-region-inference prefix, so the AWS region must be `eu-central-1` (Frankfurt) and those models must be enabled in the Bedrock console, or every probe will fail. The exact IDs live in `src/llm/bedrock_client.py`.
 
 A `Makefile` also exposes a CLI/eval path (`make audit`, `make eval`) used for offline experimentation; the web app above is the primary interface.
+
+---
+
+## Admin
+
+Admin mode unlocks unlimited audits and lets you see/delete any brand. Enter it by visiting the site with your key: `http://localhost/?admin=<ADMIN_KEY>` (the key is stored in the browser and stripped from the URL; click the **ADMIN** badge to exit).
+
+A small ops helper, `./admin.sh`, wraps the common tasks:
+
+```bash
+./admin.sh list            # every brand (id · name · session · #audits)
+./admin.sh url             # print the admin-login URL
+./admin.sh delete <id>     # delete one brand (demo brands 1004–1007 are protected)
+./admin.sh clean           # delete all non-demo brands (keeps the 4 demos)
+```
+
+It reads `ADMIN_KEY` / `POSTGRES_*` from `.env` — no secrets are baked into the script. (`./seed_audit.sh` is a manual re-seed for the demo-brand scores; on a fresh deploy with AWS creds, `AUTO_SEED_AUDITS` already populates them on first boot.)
 
 ---
 
