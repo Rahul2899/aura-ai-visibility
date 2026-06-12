@@ -371,7 +371,7 @@ export default function Home() {
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
         {/* Hero — tell a first-time visitor exactly what this is */}
         <Reveal>
-          <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3">
+          <section className="text-center max-w-2xl mx-auto pt-4 pb-2 space-y-3 px-1">
             <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
               AI Brand Visibility
             </span>
