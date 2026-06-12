@@ -555,7 +555,7 @@ export default function Home() {
                   <div className="col-span-2 sm:col-span-2 text-right">Score</div>
                   <div className="hidden sm:block col-span-2 text-right">Trend</div>
                   <div className="col-span-2 flex items-center justify-end">
-                    <span className="w-7 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</span>
+                    <span className="hidden sm:inline w-7 text-right cursor-help" title="Number of buyer-style questions asked across AI models in the latest audit">Probes</span>
                     <span className="hidden sm:block w-16" />
                   </div>
                 </div>
@@ -606,24 +606,28 @@ export default function Home() {
                         </div>
                         <div className="col-span-2 flex justify-end"><ScoreChip pct={b.visibility_pct} /></div>
                         <div className="hidden sm:flex col-span-2 justify-end"><TrendPill v={b.trend} /></div>
-                        <div className="col-span-2 flex items-center justify-end">
-                          {/* Fixed-width number cell so the count always lines up across rows,
-                              regardless of the hover action buttons that follow. */}
-                          <span className="text-slate-700 text-sm font-semibold tabular w-7 text-right">{b.probe_count ?? "0"}</span>
-                          {/* Action buttons occupy a reserved 16-wide slot; they fade in on
-                              hover but never shift the number. */}
-                          <div className="w-16 flex items-center justify-end gap-1">
+                        <div className="col-span-2 flex items-center justify-end gap-1">
+                          {/* Probe count: hidden on mobile (no room), shown sm+. */}
+                          <span className="hidden sm:inline text-slate-700 text-sm font-semibold tabular w-7 text-right">{b.probe_count ?? "0"}</span>
+                          {/* Action buttons: hover-reveal on desktop (group-hover), but ALWAYS
+                              visible on mobile/touch — phones have no hover, so a hover-gated
+                              button would be invisible/unusable. */}
+                          <div className="flex items-center justify-end gap-0.5 sm:w-16">
+                          {/* Re-run audit: desktop-only (mobile keeps the row uncluttered;
+                              users can re-run from the brand page). hover-reveal on desktop. */}
                           {!b.is_example && (
                             <button onClick={e => { e.preventDefault(); window.location.href = `/brands/${b.id}?autostart=1`; }}
-                              className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all opacity-0 group-hover:opacity-100"
+                              className="hidden sm:flex w-8 h-8 rounded-lg items-center justify-center text-slate-400 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all sm:opacity-0 sm:group-hover:opacity-100"
                               title="Re-run audit"
                               aria-label={`Re-run audit for ${b.name}`}>
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
+                          {/* Delete/hide: always visible on mobile (no hover on touch),
+                              hover-reveal on desktop. */}
                           <button onClick={e => { e.preventDefault(); deleteBrand(b.id); }}
                             disabled={deleting === b.id}
-                            className="w-7 h-7 rounded flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all sm:opacity-0 sm:group-hover:opacity-100"
                             title={b.is_example ? "Hide this demo brand from your dashboard" : "Delete brand"}
                             aria-label={b.is_example ? `Hide demo brand ${b.name}` : `Delete ${b.name}`}>
                             <Trash2 className="w-3.5 h-3.5" />
