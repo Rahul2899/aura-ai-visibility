@@ -20,6 +20,57 @@ from src.llm.extractor import extract_mentions
 log = structlog.get_logger()
 
 
+# Country-code TLD -> human region. A ccTLD is a strong, deterministic signal of a brand's
+# home market. Kept to clear cases; generic TLDs (.com/.io/.app) give NO region signal here
+# and fall through to the web-context check, then default to Global.
+_TLD_REGION = {
+    "de": "Germany", "at": "Germany", "ch": "Germany",            # DACH
+    "fr": "France", "it": "Italy", "es": "Spain", "pt": "Portugal",
+    "nl": "the Netherlands", "be": "Belgium", "se": "Sweden", "no": "Norway",
+    "dk": "Denmark", "fi": "Finland", "pl": "Poland", "ie": "Ireland",
+    "uk": "the UK", "eu": "Europe",
+    "in": "India", "jp": "Japan", "cn": "China", "kr": "South Korea",
+    "sg": "Singapore", "ae": "the UAE", "sa": "Saudi Arabia",
+    "au": "Australia", "nz": "New Zealand",
+    "br": "Brazil", "mx": "Mexico", "ca": "Canada",
+}
+# Region phrases to look for in the brand's own web context when the TLD is generic.
+_REGION_PHRASES = [
+    ("Germany", ["based in germany", "headquartered in germany", "german company", "deutschland"]),
+    ("Europe", ["across europe", "european markets", "throughout europe", "europe-wide"]),
+    ("India", ["based in india", "headquartered in india", "indian company"]),
+    ("the UK", ["based in the uk", "based in the united kingdom", "british company"]),
+    ("Australia", ["based in australia", "australian company"]),
+]
+
+
+def infer_region(domain: str | None, web_context: str | None) -> str | None:
+    """Best-effort home-market detection. Deterministic-first (ccTLD), then a light
+    web-context phrase check. Returns a region label (e.g. "Germany", "Europe") or None
+    when there's no confident signal — None means "Global" to the caller. Conservative on
+    purpose: we never claim a region without clear evidence (the user toggle is the safety
+    net for ambiguous .com brands)."""
+    if domain:
+        host = domain.lower().strip().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+        parts = host.split(".")
+        # handle multi-part ccTLDs like co.uk / com.au
+        if len(parts) >= 2:
+            last2 = ".".join(parts[-2:])
+            if last2 in ("co.uk", "org.uk", "ac.uk"):
+                return "the UK"
+            if last2 in ("com.au", "net.au"):
+                return "Australia"
+            tld = parts[-1]
+            if tld in _TLD_REGION:
+                return _TLD_REGION[tld]
+    if web_context:
+        low = web_context.lower()
+        for region, phrases in _REGION_PHRASES:
+            if any(p in low for p in phrases):
+                return region
+    return None
+
+
 async def _scrape_homepage(name: str, domain: str) -> str | None:
     """Fetch the brand's own homepage (SSRF-safe). This is the ONE source that is
     unambiguously the right company — no entity-confusion risk."""
@@ -516,7 +567,7 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     return (industry or "").strip() or "this product category"
 
 
-async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None, category_override: str | None = None) -> tuple[list[str], str]:
+async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None, category_override: str | None = None, region: str | None = None) -> tuple[list[str], str]:
     """Generate the probe set in two BLIND pools to avoid brand-shaped questions:
       - category questions: generated from the inferred CATEGORY ONLY (brand withheld)
         -> neutral, these are what get scored for true organic visibility.
@@ -535,9 +586,15 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
     else:
         category = await _infer_category(bedrock, name, industry, web_context)
     log.info("category_inferred", brand=name, category=category)
+    # Region scoping: when a home market is chosen, frame the buyer questions for THAT
+    # market so the models name real LOCAL competitors and the brand is measured fairly in
+    # the market it serves. Still brand-blind (no bias) — only the geography is added.
+    region_line = ""
+    if region and region.strip() and region.strip().lower() not in ("global", "globally", "worldwide"):
+        region_line = f" Frame EVERY question for buyers in {region.strip()} (e.g. 'best ... in {region.strip()}')."
     cat_user = (
         f"Category: {category}\n\n"
-        "Write 8 neutral buyer questions for THIS category as JSON. Do NOT name any specific brand."
+        f"Write 8 neutral buyer questions for THIS category as JSON.{region_line} Do NOT name any specific brand."
     )
     category_qs = await _gen_questions_from_prompt(bedrock, CATEGORY_GEN_PROMPT, cat_user, 8)
 
@@ -712,10 +769,15 @@ async def preview_audit(session: AsyncSession, brand_id: int) -> dict:
 
     category = await _infer_category(bedrock, name, brand.industry, web_ctx) if found else ""
     summary = (web_ctx or "")[:240]
-    return {"found": found, "category": category, "summary": summary, "source": source}
+    # Detected home market (None = no confident signal = "Global"). Independent of the
+    # entity gate: the domain TLD is a valid market signal even when confirmation is unsure.
+    # The UI shows this as a pre-selected, one-tap-overridable toggle (smart, never silent).
+    detected_region = infer_region(brand.domain, web_ctx)
+    return {"found": found, "category": category, "summary": summary,
+            "source": source, "detected_region": detected_region}
 
 
-async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, category_override: str | None = None, on_event=None) -> Insight | None:
+async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, category_override: str | None = None, region: str | None = None, on_event=None) -> Insight | None:
     """Two-phase audit: (A) a stronger model writes buyer questions grounded in live
     web context, (B) probes run in parallel across the model panel and a fast model
     writes the factual summary. Returns the saved Insight, or None on dry_run."""
@@ -755,7 +817,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             raise BrandNotConfirmed(target_brand)
 
     emit("Gathered brand context. Generating questions…")
-    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions, category_override=category_override)
+    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions, category_override=category_override, region=region)
     if not questions:
         log.error("no_questions_generated", brand_id=brand_id)
         return None

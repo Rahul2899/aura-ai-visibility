@@ -18,6 +18,7 @@ log = structlog.get_logger()
 class AuditRequest(BaseModel):
     custom_questions: list[str] = []
     category: str | None = None  # user-confirmed category from the preview step (optional)
+    region: str | None = None    # user-chosen market ("Europe", "Germany", ...) or None=Global
 
     # Defense-in-depth caps on attacker-controlled input that flows into LLM prompts.
     # Bounds the payload (no huge-body parsing) and the per-question length (a long
@@ -60,7 +61,7 @@ async def _refund_audit_slot(rate_key: str | None):
         log.warning("audit_refund_failed", rate_key=rate_key, error=str(e))
 
 
-async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None, category: str | None = None):
+async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None, category: str | None = None, region: str | None = None):
     _jobs[job_id]["status"] = "running"
 
     def _emit(msg: str):
@@ -71,7 +72,7 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
 
     try:
         async with SessionLocal() as session:
-            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, category_override=category, on_event=_emit)
+            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, category_override=category, region=region, on_event=_emit)
         if insight:
             _jobs[job_id].update({
                 "status": "completed",
@@ -210,20 +211,21 @@ async def start_audit(
 
     custom_questions = [q.strip() for q in (body.custom_questions if body else []) if q.strip()][:5]
     category = (body.category.strip()[:60] if body and body.category and body.category.strip() else None)
+    region = (body.region.strip()[:60] if body and body.region and body.region.strip() else None)
 
     global _job_counter
     _job_counter += 1
     job_id = f"job_{_job_counter}"
     _jobs[job_id] = {"status": "queued", "brand_id": brand_id, "events": []}
 
-    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None, cat: str | None):
+    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None, cat: str | None, reg: str | None):
         async with sem:
-            await _run_audit_job(jid, bid, cq, rate_key=rk, category=cat)
+            await _run_audit_job(jid, bid, cq, rate_key=rk, category=cat, region=reg)
 
     if sem is not None:
-        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key, category)
+        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key, category, region)
     else:
-        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key, category=category)
+        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key, category=category, region=region)
 
     return {"job_id": job_id, "status": "queued"}
 

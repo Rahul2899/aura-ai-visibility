@@ -16,7 +16,7 @@ export type JobState = {
   events?: { t: number; msg: string }[];
 };
 
-type PreviewState = { found: boolean; category: string; summary?: string };
+type PreviewState = { found: boolean; category: string; summary?: string; detected_region?: string | null };
 
 export default function AuditButton({ brandId, brandName = "this brand", isExample = false, onJobChange }: { brandId: number; brandName?: string; isExample?: boolean; onJobChange?: (job: JobState | null) => void }) {
   const [job, setJob] = useState<JobState | null>(null);
@@ -26,6 +26,9 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [editCategory, setEditCategory] = useState("");
+  // Chosen market for the audit: the detected home region, or null = Global. Pre-set from
+  // the preview's detected_region; the user can flip it on the confirm card before running.
+  const [region, setRegion] = useState<string | null>(null);
   const started = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const customRef = useRef<HTMLDivElement | null>(null);
@@ -124,6 +127,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
       const data = res.ok ? await res.json() : { found: true, category: "", summary: "" };
       setPreview(data);
       setEditCategory(data.category ?? "");
+      setRegion(data.detected_region ?? null);  // pre-select the detected market (null=Global)
     } catch {
       // If preview fails, don't block — let the user run the audit with no override.
       setPreview({ found: true, category: "", summary: "" });
@@ -154,6 +158,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     const custom_questions = stashed.length ? stashed : parseCustomQuestions();
     const body: Record<string, unknown> = { custom_questions };
     if (categoryOverride && categoryOverride.trim()) body.category = categoryOverride.trim();
+    if (region && region.trim()) body.region = region.trim();  // null/Global -> omitted
     const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, {
       method: "POST",
       headers,
@@ -302,6 +307,23 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
                 placeholder="e.g. premium chocolate, gym membership"
                 className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
               />
+              {/* Market toggle — smart default (detected region), one tap to switch. Only
+                  shown when a home market was detected; pure-global brands skip it. */}
+              {preview.detected_region && (
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 mb-1">Market to measure</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button type="button" onClick={() => setRegion(preview.detected_region ?? null)}
+                      className={`text-xs font-bold rounded-lg px-2 py-2 border transition-colors ${region ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent-2)]" : "bg-white border-slate-200 text-slate-500"}`}>
+                      {preview.detected_region} <span className="font-normal opacity-70">(detected)</span>
+                    </button>
+                    <button type="button" onClick={() => setRegion(null)}
+                      className={`text-xs font-bold rounded-lg px-2 py-2 border transition-colors ${!region ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent-2)]" : "bg-white border-slate-200 text-slate-500"}`}>
+                      Globally
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <button onClick={() => startAudit(editCategory)} className="btn-primary flex-1 flex items-center justify-center gap-1.5 text-xs">
                   <Play className="w-3.5 h-3.5 text-white fill-white" /> Run audit
