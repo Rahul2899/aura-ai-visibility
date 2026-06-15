@@ -1,5 +1,20 @@
 # Aura AI — Brand Visibility for the AI Search Era
 
+<p align="center">
+  <a href="https://aurai.duckdns.org"><img alt="Live demo" src="https://img.shields.io/badge/▶_Live_Demo-aurai.duckdns.org-1863dc?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-FastAPI-009688?logo=fastapi&logoColor=white">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-TypeScript-000000?logo=next.js&logoColor=white">
+  <img alt="AWS Bedrock" src="https://img.shields.io/badge/AWS-Bedrock-FF9900?logo=amazonaws&logoColor=white">
+  <img alt="Postgres" src="https://img.shields.io/badge/Postgres-Docker-4169E1?logo=postgresql&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-209_passing-3fb950">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+> **Try it live →** [aurai.duckdns.org](https://aurai.duckdns.org) — run a real audit on any brand in ~30 seconds, or explore the four pre-loaded demo brands.
+
 When buyers research what to buy, they increasingly ask an AI assistant instead of a search engine. *"What's the best applicant tracking system for a 200-person company?"* The models name a handful of brands. **If yours isn't one of them, you're invisible at the exact moment of decision — and unlike SEO, there's no results page to check.**
 
 Aura AI measures that. It runs the questions a real buyer would ask across several leading AI models, detects whether a brand surfaces organically, and reports a visibility score with a per-model and per-question breakdown.
@@ -103,7 +118,7 @@ LLMs are used **only** where natural-language understanding is genuinely require
 - **AI:** AWS Bedrock (Converse API, cross-region inference), four model families
 - **Frontend:** Next.js (App Router), TypeScript, Tailwind, Recharts
 - **Infra:** Docker Compose (`db` · `app` · `web` · `caddy`); Caddy is the only public entry and terminates TLS automatically
-- **Tests:** 147 backend (pytest) + 40 frontend (Jest) = 187
+- **Tests:** 157 backend (pytest) + 52 frontend (Jest) = 209
 
 ---
 
