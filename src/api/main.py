@@ -161,7 +161,16 @@ async def _seed_example_audits() -> None:
         log.warning("autoaudit_failed", error=str(e))
 
 
-app = FastAPI(title="Aura AI API", lifespan=lifespan)
+# Interactive API docs (Swagger/ReDoc) are off by default — in production they hand an
+# attacker the full endpoint/schema map for free. Set ENABLE_DOCS=true locally for dev.
+_docs_on = os.environ.get("ENABLE_DOCS", "false").lower() in ("1", "true", "yes")
+app = FastAPI(
+    title="Aura AI API",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
 
 _allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(

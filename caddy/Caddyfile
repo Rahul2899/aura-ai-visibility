@@ -16,6 +16,7 @@
 		# Only meaningful over HTTPS; harmless on plain HTTP.
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		-Server
+		-X-Powered-By
 	}
 
 	# API → app:8000 (strip the /api prefix, matching nginx proxy_pass http://app:8000/).
