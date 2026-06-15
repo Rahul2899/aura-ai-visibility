@@ -1,4 +1,5 @@
 import os
+import secrets
 import time
 import structlog
 from datetime import datetime
@@ -47,7 +48,6 @@ router = APIRouter(prefix="/audit")
 GLOBAL_DAILY_AUDIT_CAP = int(os.environ.get("GLOBAL_DAILY_AUDIT_CAP", "50"))
 
 _jobs: dict = {}
-_job_counter = 0
 # "session::batch_id" keys that have already been charged one audit credit, so the rest
 # of a comparison's brand audits run free. In-memory is fine: a batch is short-lived and
 # the worst case of a process restart is one comparison costing an extra credit.
@@ -251,9 +251,10 @@ async def start_audit(
     category = (body.category.strip()[:60] if body and body.category and body.category.strip() else None)
     region = (body.region.strip()[:60] if body and body.region and body.region.strip() else None)
 
-    global _job_counter
-    _job_counter += 1
-    job_id = f"job_{_job_counter}"
+    # Unguessable job id. Job status is fetched without auth (the browser polls it
+    # right after starting), so a sequential "job_N" would let anyone enumerate and
+    # read other users' audit results. A random token makes the id itself the secret.
+    job_id = f"job_{secrets.token_urlsafe(16)}"
     _jobs[job_id] = {"status": "queued", "brand_id": brand_id, "events": []}
 
     async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None, cat: str | None, reg: str | None):
