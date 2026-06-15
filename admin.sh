@@ -6,6 +6,7 @@
 #   ./admin.sh delete <id>          # delete one brand by id (demos are protected)
 #   ./admin.sh clean                # delete ALL non-demo brands (keeps ids 1004-1007)
 #   ./admin.sh url                  # print the admin-login URL for the browser
+#   ./admin.sh stats                # real-user activity: visitors, brands, audits, per-day
 #
 set -euo pipefail
 
@@ -65,6 +66,18 @@ case "${1:-}" in
     echo "(Exit admin by clicking the ADMIN badge top-right.)"
     ;;
 
+  stats)
+    # Real-user activity (excludes the demo brands and any admin/seed sessions).
+    EXCL="session_id NOT IN ('example','admin','seed-temp')"
+    echo "Unique visitors:  $(psql_exec "SELECT count(DISTINCT session_id) FROM brands WHERE $EXCL;")"
+    echo "Brands tested:    $(psql_exec "SELECT count(*) FROM brands WHERE $EXCL;")"
+    echo "Audits run:       $(psql_exec "SELECT count(*) FROM insights i JOIN brands b ON i.brand_id=b.id WHERE b.$EXCL;")"
+    echo ""
+    echo "Brands tested per day:"
+    psql_exec "SELECT '  ' || date(created_at) || '   ' || count(*)
+               FROM brands WHERE $EXCL GROUP BY date(created_at) ORDER BY date(created_at) DESC;"
+    ;;
+
   *)
-    echo "Usage: ./admin.sh {list|delete <id>|clean|url}"; exit 1;;
+    echo "Usage: ./admin.sh {list|delete <id>|clean|url|stats}"; exit 1;;
 esac
