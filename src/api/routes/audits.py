@@ -1,3 +1,4 @@
+import os
 import time
 import structlog
 from datetime import datetime
@@ -37,6 +38,13 @@ class AuditRequest(BaseModel):
         return v[:120] if v else v
 
 router = APIRouter(prefix="/audit")
+
+# Platform-wide safety cap on total audits per UTC day. Protects the AWS/Bedrock bill
+# regardless of how many sessions/browsers/incognito tabs one person opens — the
+# per-session limit is good-faith friction; THIS is the hard ceiling on spend.
+# Override via env for a launch spike without a redeploy. Resets at UTC midnight
+# (the counter key embeds the date).
+GLOBAL_DAILY_AUDIT_CAP = int(os.environ.get("GLOBAL_DAILY_AUDIT_CAP", "50"))
 
 _jobs: dict = {}
 _job_counter = 0
@@ -164,6 +172,36 @@ async def start_audit(
         batch_key = f"{session_id or client_ip(request)}::{batch_id}"
         batch_already_charged = batch_key in _charged_batches
         _charged_batches.add(batch_key)
+
+    # Platform-wide daily cap. Every non-admin audit counts (including each brand in a
+    # comparison — they each cost a real Bedrock run even though the USER is charged one
+    # credit). Atomic increment on a per-day key; reject once the day's total is reached.
+    # This is the real spend ceiling that incognito/VPN/browser-switching can't dodge.
+    if not is_admin(session_id, x_admin_key):
+        global_key = f"global:{datetime.utcnow():%Y-%m-%d}"
+        async with SessionLocal() as session:
+            stmt = (
+                pg_insert(AuditLimit)
+                .values(rate_key=global_key, audit_count=1, last_audit_at=datetime.utcnow())
+                .on_conflict_do_update(
+                    index_elements=["rate_key"],
+                    set_={
+                        "audit_count": AuditLimit.audit_count + 1,
+                        "last_audit_at": datetime.utcnow(),
+                    },
+                )
+                .returning(AuditLimit.audit_count)
+            )
+            global_count = (await session.execute(stmt)).scalar_one()
+            await session.commit()
+        if global_count > GLOBAL_DAILY_AUDIT_CAP:
+            # Day's cap hit — refund the global increment and reject. (No per-session
+            # charge has happened yet, so nothing else to undo.)
+            await _refund_audit_slot(global_key)
+            raise HTTPException(
+                status_code=429,
+                detail="Aura AI has hit today's free-audit limit. Please try again tomorrow.",
+            )
 
     # Enforce the per-session audit limit. The increment happens HERE (at request time),
     # so a queued/running audit already counts — a 3rd request while 2 are in flight is
