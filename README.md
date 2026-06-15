@@ -34,7 +34,18 @@ A worked example within a single category (recruiting software), which shows the
 | Workday | 69% | Recognized, more enterprise-skewed |
 | Ashby | 0% | Newer/niche — not yet recommended for generic ATS queries |
 
-That 0%→81% spread is the point: the score discriminates. A tool that scored every brand ~90% would be measuring nothing. The live demo carries four brands across four different industries (SaaS, fintech, retail, and CPG) to show the audit works in any category.
+That 0%→81% spread is the point: the score discriminates. A tool that scored every brand ~90% would be measuring nothing.
+
+The [live demo](https://aurai.duckdns.org) carries four brands across four different industries to show the audit works in any category — and the scores spread the same way:
+
+| Demo brand | Industry | Visibility |
+|---|---|---|
+| Wise | Fintech / money transfer | 90.6% |
+| Notion | SaaS / productivity | 84.4% |
+| Lindt | Premium chocolate | 46.9% |
+| Nike | Athletic apparel | 46.9% |
+
+A household name like Nike scoring lower than Wise is exactly the kind of non-obvious result the audit surfaces: brand fame ≠ being *recommended* by an AI for category questions. (Scores are regenerated on each audit and shift slightly run to run, since the models aren't deterministic.)
 
 ---
 
@@ -127,6 +138,7 @@ LLMs are used **only** where natural-language understanding is genuinely require
 - Each visitor gets a persistent client-side **session id**; their brands and audits are isolated to that session.
 - **Admin mode** (`?admin=<KEY>`, verified server-side via the `X-Admin-Key` header) sees all brands and runs without the per-session limit.
 - A non-admin session is capped at **2 audits**; in-flight and queued audits both count toward the cap, so a third request is rejected even before the first two finish.
+- A **global daily audit cap** protects the underlying AWS/Bedrock spend: it counts every audit platform-wide and resets at UTC midnight, so the public demo can't run up an unbounded bill (and can't be dodged by clearing cookies or switching browsers). This is why the hosted demo is best-effort and free *for a limited time*.
 - **Delete is asymmetric by design:** a user delete hides the brand from that user; an admin delete removes it everywhere. Audits already in flight for a brand block a duplicate run.
 
 ---
