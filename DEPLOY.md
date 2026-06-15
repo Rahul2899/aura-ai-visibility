@@ -11,7 +11,7 @@ Actions workflow (`.github/workflows/deploy.yml`) can automate it.
 
 ## 0. THE GATE — rotate secrets first (do before anything touches AWS)
 
-The old AWS/OpenRouter/admin/DB secrets have been exposed. Do NOT deploy with them.
+Rotate all secrets before the first deploy — never reuse local-dev values in production. Generate fresh AWS/OpenRouter/admin/DB credentials.
 
 - **AWS Bedrock — preferred: IAM role, no keys.**
   1. Create an IAM role (e.g. `aura-ec2-bedrock`) with a least-privilege policy:

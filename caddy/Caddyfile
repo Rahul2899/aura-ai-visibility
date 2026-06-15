@@ -1,7 +1,7 @@
 # Aura AI reverse proxy with automatic HTTPS.
 #
 # {$SITE_ADDRESS} is set in docker-compose (env). On EC2 set it to the real
-# domain (ai-visibility.duckdns.org) and Caddy auto-provisions a Let's Encrypt
+# domain (e.g. your-app.duckdns.org) and Caddy auto-provisions a Let's Encrypt
 # cert and redirects http->https. For local dev leave it as :80 (plain HTTP,
 # no cert attempted).
 {$SITE_ADDRESS:-:80} {

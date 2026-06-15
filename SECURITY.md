@@ -2,20 +2,16 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+This is an actively developed project; only the latest version on the `master`
+branch (matching the live deployment) receives security updates.
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+If you find a security issue, please report it privately rather than opening a
+public issue. Open a [GitHub security advisory](https://github.com/Rahul2899/aura-ai-visibility/security/advisories/new)
+or email the maintainer. You can expect an initial response within a few days.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+A few deliberate protections are in place that testers may find relevant: SSRF
+guards on outbound homepage fetches (per-redirect-hop revalidation),
+parameterized database access, a global daily audit cap, and admin actions
+gated behind a server-side key.
