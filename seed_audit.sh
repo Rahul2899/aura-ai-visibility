@@ -15,12 +15,23 @@
 set -euo pipefail
 
 # ── config ────────────────────────────────────────────────────────────────────
-API="${API_BASE:-http://localhost/api}"          # Caddy entry point
 DB_SERVICE="${DB_SERVICE:-db}"                    # compose service name for postgres
 BRAND_IDS=(1004 1005 1006 1007)                   # the seeded demo brand ids
 
 # Load secrets from .env if present (so you can just run ./seed_audit.sh)
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
+
+# Pick the API base. In production Caddy enforces HTTPS (a host-side http://localhost
+# call just 308-redirects and https://localhost fails the cert check), so default to
+# the real domain from SITE_ADDRESS. Local dev (no SITE_ADDRESS / plain ":80") keeps
+# http://localhost. An explicit API_BASE always wins.
+if [ -n "${API_BASE:-}" ]; then
+  API="$API_BASE"
+elif [ -n "${SITE_ADDRESS:-}" ] && [ "${SITE_ADDRESS}" != ":80" ]; then
+  API="https://${SITE_ADDRESS#https://}/api"     # strip any scheme the user added
+else
+  API="http://localhost/api"
+fi
 ADMIN_KEY="${ADMIN_KEY:?ADMIN_KEY must be set (in .env or the environment)}"
 PGUSER="${POSTGRES_USER:-peec}"
 PGPASS="${POSTGRES_PASSWORD:-peec}"

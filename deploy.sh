@@ -26,9 +26,25 @@ echo "==> Building and starting all services"
 # so no separate migrate step is needed.
 docker compose up -d --build
 
+# Health-check the app INSIDE its container, not via the host. Caddy enforces HTTPS
+# (308 -> https) and the app's 8000 port isn't published to the host, so a host-side
+# "http://localhost/api/..." curl just sees the redirect, not the API. Inside the
+# container the app serves at :8000 with no Caddy/TLS in the way (routes are mounted at
+# root — Caddy strips the /api prefix). The slim Python image has no curl, so we use
+# urllib (always present) and just check for an HTTP 200.
+app_status() {
+  docker compose exec -T app python -c \
+    "import urllib.request,sys
+try:
+    r=urllib.request.urlopen('http://localhost:8000/brands?session_id=example',timeout=5)
+    print(r.status)
+except Exception:
+    print(0)" 2>/dev/null
+}
+
 echo "==> Waiting for the API to come up"
 for i in $(seq 1 30); do
-  if curl -sf -o /dev/null "http://localhost/api/brands?session_id=example"; then
+  if [ "$(app_status)" = "200" ]; then
     echo "    API is up."
     break
   fi
@@ -36,11 +52,11 @@ for i in $(seq 1 30); do
 done
 
 echo "==> Smoke test"
-code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost/api/brands?session_id=example")
+code=$(app_status)
 if [ "$code" = "200" ]; then
-  echo "    OK: /api/brands returned 200"
+  echo "    OK: /brands returned 200"
 else
-  echo "    FAIL: /api/brands returned $code — check 'docker compose logs app'"
+  echo "    FAIL: /brands returned $code — check 'docker compose logs app'"
   exit 1
 fi
 
