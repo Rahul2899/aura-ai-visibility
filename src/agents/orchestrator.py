@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 import structlog
 from datetime import datetime
 
@@ -259,7 +260,7 @@ MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") fo
 MODEL_DISPLAY = {
     "eu.anthropic.claude-sonnet-4-6": "Claude Sonnet 4.6",
     "eu.amazon.nova-pro-v1:0": "Nova Pro",
-    "qwen.qwen3-32b-v1:0": "Qwen3 32B",
+    "eu.mistral.pixtral-large-2502-v1:0": "Mistral Large",
     "nvidia.nemotron-super-3-120b": "NVIDIA Nemotron",
     # orchestrator/analysis model (still Haiku) — kept here for friendly logs
     "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
@@ -291,11 +292,19 @@ def _bedrock_client():
     return boto3.client("bedrock-runtime", **kwargs)
 
 
+def _fold(s: str) -> str:
+    """Lowercase + strip diacritics so accented names match their plain spelling
+    ("Aldi Süd" == "aldi sud", "Nestlé" == "nestle"). NFKD decomposes accented
+    letters into base + combining mark; we drop the marks. Casing is handled too."""
+    decomposed = unicodedata.normalize("NFKD", s or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
 def _brand_matches(target: str, extracted: str) -> bool:
     """Whole-word match of the target brand against an extracted brand name, so e.g.
     "Lever" matches "Lever" / "Lever ATS" but NOT "Cleverbit" or "leverage" (a naive
-    substring check would false-positive on those)."""
-    t, e = target.strip().lower(), extracted.strip().lower()
+    substring check would false-positive on those). Diacritic-insensitive."""
+    t, e = _fold(target.strip()), _fold(extracted.strip())
     if not t:
         return False
     if t == e:
@@ -567,7 +576,7 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     try:
         resp = await asyncio.to_thread(
             lambda: bedrock.converse(
-                modelId=QUESTION_MODEL,
+                modelId=ORCHESTRATOR_MODEL,
                 messages=[{"role": "user", "content": [{"text": user}]}],
                 inferenceConfig={"maxTokens": 30, "temperature": 0.2},
             )
@@ -685,7 +694,7 @@ async def _generate_recommendations(bedrock, brand_name: str, industry: str | No
     # competitor it lists that isn't in this real set is dropped (no fabrication reaches
     # the user). Matching is case-insensitive on normalized names.
     def _norm(s: str) -> str:
-        return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+        return re.sub(r"[^a-z0-9]", "", _fold(s))
     real_competitors = {_norm(w) for ev in lost_evidence for w in ev.get("winners", [])}
     payload = {"brand": brand_name, "industry": industry or "unknown", "lost_questions": lost_evidence}
     try:
@@ -937,6 +946,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
         visibility_pct=visibility_pct,
         model_breakdown=model_breakdown,
         raw_tool_calls=[{"question": q} for q in questions],
+        region=(region.strip() if region and region.strip() else None),
     )
     session.add(insight)
     await session.commit()

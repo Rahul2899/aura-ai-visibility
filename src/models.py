@@ -108,6 +108,8 @@ class Insight(Base):
     recommendations: Mapped[Optional[list]] = mapped_column(JSONB)
     cost_usd: Mapped[Optional[float]] = mapped_column(Float)
     raw_tool_calls: Mapped[Optional[list]] = mapped_column(JSONB)
+    # Market the score was framed for ("Germany", "Europe", ...). NULL = Global.
+    region: Mapped[Optional[str]] = mapped_column(String(60))
 
 
 class ProbePerformance(Base):

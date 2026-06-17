@@ -40,6 +40,8 @@ _MIGRATIONS = [
     # Tracks when each brand was created — enables admin analytics (brands/audits over
     # time). DEFAULT now() so pre-existing rows get a timestamp instead of NULL.
     "ALTER TABLE brands ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT now()",
+    # Market the score was framed for (NULL = Global). Lets the result page label scope.
+    "ALTER TABLE insights ADD COLUMN IF NOT EXISTS region VARCHAR(60)",
     """DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_brand_share_token') THEN
             ALTER TABLE brands ADD CONSTRAINT uq_brand_share_token UNIQUE (share_token);

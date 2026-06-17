@@ -282,7 +282,13 @@ export default function BrandPage() {
             <Reveal>
             <div className="card p-6">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-                <ScoreRing pct={latest.visibility_pct ?? 0} rank={rank} total={totalBrands > 1 ? totalBrands : undefined} />
+                <div className="flex flex-col items-center md:items-start gap-2">
+                  <ScoreRing pct={latest.visibility_pct ?? 0} rank={rank} total={totalBrands > 1 ? totalBrands : undefined} />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-3 py-1"
+                    title="The market this score was framed for. AI models are trained on globally-skewed data, so a regional score reflects how the questions were asked, not a guarantee of region-specific recall.">
+                    Scored for: {latest.region ?? "Global"}
+                  </span>
+                </div>
                 {trend !== null && (
                   <div className={`text-center px-5 py-3.5 rounded-2xl border flex flex-col items-center justify-center min-w-36 cursor-help ${trend > 0 ? "border-emerald-200 bg-emerald-50" : trend < 0 ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}
                     title="Scores vary between audits: AI responses are non-deterministic, each run uses fresh probe questions, and failed models are excluded from the score.">

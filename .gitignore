@@ -53,3 +53,5 @@ scratch/
 
 # Marketing assets (local-only, not for the public repo)
 marketing/
+EMAIL_TO_TOBIAS.md
+STUDY_GUIDE.md

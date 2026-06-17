@@ -16,7 +16,7 @@ export type JobState = {
   events?: { t: number; msg: string }[];
 };
 
-type PreviewState = { found: boolean; category: string; summary?: string; detected_region?: string | null };
+type PreviewState = { found: boolean; category: string; summary?: string; detected_region?: string | null; source?: string };
 
 export default function AuditButton({ brandId, brandName = "this brand", isExample = false, onJobChange }: { brandId: number; brandName?: string; isExample?: boolean; onJobChange?: (job: JobState | null) => void }) {
   const [job, setJob] = useState<JobState | null>(null);
@@ -125,9 +125,16 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     try {
       const res = await fetch(`${API}/audit/brands/${brandId}/preview?session_id=${sess}`, { method: "POST", headers });
       const data = res.ok ? await res.json() : { found: true, category: "", summary: "" };
+      setRegion(data.detected_region ?? null);  // pre-select the detected market (null=Global)
+      // Confidence gate: a smart agent is silent when it's sure. When the brand was
+      // resolved from its own homepage (authoritative — no entity-confusion risk) and
+      // there's no regional choice to offer, skip the confirm card and just run. The
+      // backend re-verifies in orchestrate() regardless, so safety is unchanged, and the
+      // result page shows the resolved category + region as a correctable label after.
+      const confident = data.found && data.source === "homepage" && !data.detected_region;
+      if (confident) { setPreviewing(false); startAudit(data.category ?? ""); return; }
       setPreview(data);
       setEditCategory(data.category ?? "");
-      setRegion(data.detected_region ?? null);  // pre-select the detected market (null=Global)
     } catch {
       // If preview fails, don't block — let the user run the audit with no override.
       setPreview({ found: true, category: "", summary: "" });

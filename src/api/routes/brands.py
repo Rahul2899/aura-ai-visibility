@@ -98,6 +98,7 @@ async def _build_report(session, brand: Brand) -> dict:
             "model_breakdown": latest.model_breakdown or {},
             "probe_count": latest.probe_count,
             "created_at": latest.created_at.isoformat(),
+            "region": latest.region,
         },
     }
 
@@ -300,6 +301,7 @@ async def get_insights(brand_id: int, session_id: str = None, x_admin_key: str =
                 "probe_count": i.probe_count,
                 "visibility_pct": i.visibility_pct,
                 "model_breakdown": i.model_breakdown,
+                "region": i.region,
             }
             for i in insights
         ]
