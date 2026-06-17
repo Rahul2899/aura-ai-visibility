@@ -10,17 +10,18 @@ log = structlog.get_logger()
 # Frankfurt (eu-central-1) lineup — all verified callable in this account via
 # list_inference_profiles + a live converse smoke test. Newest available, 3 vendors.
 # If you move regions, the eu. prefix must change to match (us./global.).
-# Four DIFFERENT model families (Anthropic, Amazon, Mistral, NVIDIA) for a credible
-# "cross-model visibility" measurement. Mistral Pixtral Large is the EU region's only
-# Mistral; it previously throttled ~60% in Frankfurt — kept here on trial to re-measure
-# under real audit load (failed calls are excluded from scoring, so it degrades safely).
-# If throttling is still high, revert this line to "qwen.qwen3-32b-v1:0".
-# Avoided: MiniMax & gpt-oss (schema our converse parser can't read -> 'text' error).
+# Four DIFFERENT model families (Anthropic, Amazon, Qwen, NVIDIA) for a credible
+# "cross-model visibility" measurement. All verified callable + parseable + non-
+# throttling in eu-central-1. Qwen/Nemotron are cheap open-weight models, which also
+# keeps per-audit cost down. Avoided: Mistral Pixtral Large — the EU region's only
+# Mistral, but it terminal-throttles ~50%+ under real audit load (confirmed 2026-06-17:
+# most calls exhaust all 4 retries, 7-11s latency), so it adds no signal and slows the
+# whole panel. MiniMax & gpt-oss respond in a schema our converse parser can't read.
 BEDROCK_MODELS = [
-    "eu.anthropic.claude-sonnet-4-6",        # Anthropic
-    "eu.amazon.nova-pro-v1:0",               # Amazon
-    "eu.mistral.pixtral-large-2502-v1:0",    # Mistral (EU) — replaced Qwen3 32B
-    "nvidia.nemotron-super-3-120b",          # NVIDIA
+    "eu.anthropic.claude-sonnet-4-6",     # Anthropic
+    "eu.amazon.nova-pro-v1:0",            # Amazon
+    "qwen.qwen3-32b-v1:0",               # Qwen / Alibaba
+    "nvidia.nemotron-super-3-120b",      # NVIDIA
 ]
 
 

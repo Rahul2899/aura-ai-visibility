@@ -260,7 +260,7 @@ MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") fo
 MODEL_DISPLAY = {
     "eu.anthropic.claude-sonnet-4-6": "Claude Sonnet 4.6",
     "eu.amazon.nova-pro-v1:0": "Nova Pro",
-    "eu.mistral.pixtral-large-2502-v1:0": "Mistral Large",
+    "qwen.qwen3-32b-v1:0": "Qwen3 32B",
     "nvidia.nemotron-super-3-120b": "NVIDIA Nemotron",
     # orchestrator/analysis model (still Haiku) — kept here for friendly logs
     "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
