@@ -126,13 +126,12 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
       const res = await fetch(`${API}/audit/brands/${brandId}/preview?session_id=${sess}`, { method: "POST", headers });
       const data = res.ok ? await res.json() : { found: true, category: "", summary: "" };
       setRegion(data.detected_region ?? null);  // pre-select the detected market (null=Global)
-      // Confidence gate: a smart agent is silent when it's sure. When the brand was
-      // resolved from its own homepage (authoritative — no entity-confusion risk) and
-      // there's no regional choice to offer, skip the confirm card and just run. The
-      // backend re-verifies in orchestrate() regardless, so safety is unchanged, and the
-      // result page shows the resolved category + region as a correctable label after.
-      const confident = data.found && data.source === "homepage" && !data.detected_region;
-      if (confident) { setPreviewing(false); startAudit(data.category ?? ""); return; }
+      // Always show the confirm card so the user can verify the inferred CATEGORY before
+      // spending an audit. The category is the highest-leverage thing to get right — a
+      // wrong category (e.g. a gym read as a "fitness app" when its site won't load and
+      // a same-named app is found instead) silently scores the brand against the wrong
+      // market. One glance + one-tap edit here prevents that, which matters most for the
+      // small/niche brands where web context is thin or entity-ambiguous.
       setPreview(data);
       setEditCategory(data.category ?? "");
     } catch {

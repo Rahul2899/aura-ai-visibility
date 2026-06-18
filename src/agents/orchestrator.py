@@ -72,42 +72,64 @@ def infer_region(domain: str | None, web_context: str | None) -> str | None:
     return None
 
 
+async def _fetch_safe(start_url: str, name: str) -> str | None:
+    """Fetch a homepage from an ALREADY-SSRF-validated start URL, following redirects
+    manually so every hop is re-validated. Real sites 301 the apex to www/ or a region
+    page, but a redirect target is controlled by the response — auto-follow would let a
+    public domain bounce us to 169.254.169.254 (metadata) or an internal service. We
+    re-check each Location's host through the same IP guard. Returns page signal or None.
+    Raises on transport errors (e.g. TLS) so the caller can decide whether to fall back."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"}
+    async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+        url = start_url
+        for _ in range(6):  # initial request + up to 5 redirects
+            r = await client.get(url, headers=headers)
+            if r.is_redirect and r.headers.get("location"):
+                nxt = str(r.next_request.url) if r.next_request else None
+                # Re-validate the redirect target's HOST (resolves DNS + blocks
+                # private/metadata IPs) regardless of the redirect's scheme.
+                if not nxt or not _safe_https_url(nxt):
+                    log.warning("homepage_redirect_blocked_ssrf", brand=name, location=nxt)
+                    return None
+                url = nxt
+                continue
+            break
+        if r.status_code == 200:
+            summary = extract_page_signal(r.text)
+            if summary:
+                log.info("homepage_fetch_ok", brand=name, chars=len(summary), scheme=url.split(":")[0])
+                return summary
+    return None
+
+
 async def _scrape_homepage(name: str, domain: str) -> str | None:
     """Fetch the brand's own homepage (SSRF-safe). This is the ONE source that is
-    unambiguously the right company — no entity-confusion risk."""
+    unambiguously the right company — no entity-confusion risk.
+
+    Tries HTTPS first. If HTTPS fails at the transport layer (common for small/legacy
+    sites with broken TLS — e.g. a German gym whose cert handshake errors), falls back
+    to HTTP on the SAME already-validated host. SSRF safety is unchanged: the host's IP
+    was vetted by _safe_https_url and every redirect hop is re-validated; the only
+    trade-off is that the HTTP fetch reads the page in plaintext."""
     safe_url = _safe_https_url(domain)
     if not safe_url:
         log.warning("homepage_fetch_blocked_ssrf", brand=name, domain=domain)
         return None
+    # safe_url is "https://{validated_host}" — reuse that exact host for the HTTP fallback
+    # so we never re-open the SSRF gate to an unvalidated string.
+    host = safe_url[len("https://"):]
     try:
-        # Follow redirects MANUALLY so every hop is SSRF-validated. Real sites 301 the
-        # apex to www/ or a region page (notion.so -> www.notion.so), but a redirect
-        # target is controlled by the response, not by us — auto-follow would let a
-        # public domain bounce us to 169.254.169.254 (cloud metadata) or an internal
-        # service. So we re-check each Location's host through the same IP guard.
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"}
-        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-            url = safe_url
-            for _ in range(6):  # initial request + up to 5 redirects
-                r = await client.get(url, headers=headers)
-                if r.is_redirect and r.headers.get("location"):
-                    nxt = str(r.next_request.url) if r.next_request else None
-                    # Re-validate the redirect target's HOST (resolves DNS + blocks
-                    # private/metadata IPs). _safe_https_url drops the path, so we only
-                    # use it as a gate, then fetch the full resolved URL to keep the path.
-                    if not nxt or not _safe_https_url(nxt):
-                        log.warning("homepage_redirect_blocked_ssrf", brand=name, location=nxt)
-                        return None
-                    url = nxt
-                    continue
-                break
-            if r.status_code == 200:
-                summary = extract_page_signal(r.text)
-                if summary:
-                    log.info("homepage_fetch_ok", brand=name, chars=len(summary))
-                    return summary
+        result = await _fetch_safe(safe_url, name)
+        if result:
+            return result
     except Exception as e:
-        log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e))
+        log.warning("homepage_https_failed_trying_http", brand=name, domain=domain, error=str(e))
+        try:
+            result = await _fetch_safe(f"http://{host}", name)
+            if result:
+                return result
+        except Exception as e2:
+            log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e2))
     return None
 
 
