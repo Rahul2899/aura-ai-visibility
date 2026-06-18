@@ -8,7 +8,7 @@ load_dotenv()
 structlog.configure(processors=[structlog.dev.ConsoleRenderer()])
 
 from src.db import SessionLocal, engine, Base
-from src.models import Brand, Prompt
+from src.models import Brand, Prompt, Insight
 from src.pipeline.runner import run_audit
 from src.pipeline.scorer import score_brand
 from src.eval.evaluate import run_eval as _run_eval
@@ -115,6 +115,55 @@ def orchestrate_audit(
             print(f"Probes run:     {insight.probe_count}")
             print(f"Visibility:     {insight.visibility_pct:.1f}%")
             print(f"\nInsight:\n{insight.summary}")
+
+    asyncio.run(_run())
+
+
+@app.command()
+def scheduled_audit(
+    stale_days: int = typer.Option(7, "--stale-days", help="Re-audit brands whose latest audit is older than this"),
+    max_brands: int = typer.Option(3, "--max-brands", help="Hard cap on audits per run (protects the Bedrock bill)"),
+    examples_only: bool = typer.Option(False, "--examples-only", help="Only re-audit the demo (example) brands"),
+):
+    """Re-audit stale brands so the visibility-over-time chart grows on its own.
+
+    Designed to be driven by an OS cron (e.g. weekly). Picks the brands whose most
+    recent audit is older than --stale-days (or never audited), oldest first, and
+    re-audits at most --max-brands of them via the same orchestrate() path the web
+    uses. The cap is the cost guard: a cron firing can never run more than that.
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func
+
+    async def _run():
+        cutoff = datetime.utcnow() - timedelta(days=stale_days)
+        async with SessionLocal() as session:
+            # Latest audit time per brand (NULL = never audited).
+            latest = (
+                select(Insight.brand_id, func.max(Insight.created_at).label("last_run"))
+                .group_by(Insight.brand_id).subquery()
+            )
+            stmt = (
+                select(Brand)
+                .outerjoin(latest, latest.c.brand_id == Brand.id)
+                .where(Brand.hidden_at.is_(None))
+                .where((latest.c.last_run.is_(None)) | (latest.c.last_run < cutoff))
+                .order_by(latest.c.last_run.asc().nulls_first())
+            )
+            if examples_only:
+                stmt = stmt.where(Brand.session_id == "example")
+            brands = (await session.scalars(stmt)).all()
+
+        due = brands[:max_brands]
+        print(f"scheduled-audit: {len(brands)} stale, auditing {len(due)} (cap {max_brands})")
+        for b in due:
+            print(f"  -> {b.name} (id={b.id}) ...", flush=True)
+            try:
+                async with SessionLocal() as session:
+                    ins = await orchestrate(session, b.id)
+                print(f"     done: {ins.visibility_pct:.1f}%" if ins else "     no insight", flush=True)
+            except Exception as e:
+                print(f"     FAILED: {type(e).__name__}: {e}", flush=True)
 
     asyncio.run(_run())
 
