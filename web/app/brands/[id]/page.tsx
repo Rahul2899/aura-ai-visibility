@@ -9,6 +9,7 @@ import DeleteInsightButton from "./DeleteInsightButton";
 import ProbeDetail from "./ProbeDetail";
 import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
+import RegionComparison from "./RegionComparison";
 import ModelGrid from "../../components/ModelGrid";
 import { Reveal } from "../../components/Reveal";
 import { getSessionId, getAdminKey } from "../../lib/session";
@@ -451,6 +452,8 @@ export default function BrandPage() {
                 <VisibilityChart data={chartData} />
               </div>
             )}
+
+            <RegionComparison brandId={Number(id)} isExample={!!brand.is_example} insights={insights} />
 
             {probeDetail.probes.length > 0 && (
               <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date}
