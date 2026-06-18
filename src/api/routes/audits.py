@@ -48,10 +48,6 @@ router = APIRouter(prefix="/audit")
 GLOBAL_DAILY_AUDIT_CAP = int(os.environ.get("GLOBAL_DAILY_AUDIT_CAP", "50"))
 
 _jobs: dict = {}
-# "session::batch_id" keys that have already been charged one audit credit, so the rest
-# of a comparison's brand audits run free. In-memory is fine: a batch is short-lived and
-# the worst case of a process restart is one comparison costing an extra credit.
-_charged_batches: set[str] = set()
 
 
 async def _refund_audit_slot(rate_key: str | None):
@@ -170,11 +166,26 @@ async def start_audit(
     # brands in one comparison send the same batch_id; we charge the limit for the FIRST
     # request of a batch and skip it for the rest. (Per session+batch so it can't be
     # abused to bypass the limit across separate comparisons.)
+    #
+    # Compare fires all brands in PARALLEL, so this "is this the first of the batch?"
+    # decision must be ATOMIC — a check-then-set on an in-memory set let two simultaneous
+    # requests both read "not charged", both get charged, trip the per-session limit, and
+    # one brand got rejected (showing 0). We instead INSERT a marker row with ON CONFLICT
+    # DO NOTHING: exactly one request inserts it (the first), the rest are no-ops. The DB
+    # unique constraint decides the winner regardless of timing.
     batch_already_charged = False
     if batch_id:
-        batch_key = f"{session_id or client_ip(request)}::{batch_id}"
-        batch_already_charged = batch_key in _charged_batches
-        _charged_batches.add(batch_key)
+        batch_marker = f"batch::{session_id or client_ip(request)}::{batch_id}"
+        async with SessionLocal() as session:
+            ins = await session.execute(
+                pg_insert(AuditLimit)
+                .values(rate_key=batch_marker, audit_count=0, last_audit_at=datetime.utcnow())
+                .on_conflict_do_nothing(index_elements=["rate_key"])
+            )
+            await session.commit()
+        # rowcount == 1 -> WE inserted it -> this is the first request -> charge it.
+        # rowcount == 0 -> someone else already inserted -> already charged, skip.
+        batch_already_charged = ins.rowcount == 0
 
     # Platform-wide daily cap. Every non-admin audit counts (including each brand in a
     # comparison — they each cost a real Bedrock run even though the USER is charged one
