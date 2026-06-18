@@ -746,21 +746,30 @@ async def _verify_entity(bedrock, name: str, industry: str | None, web_context: 
         "company that happens to share the name, and not generic/unrelated results)? "
         'Answer ONLY with JSON: {"match": true|false}.'
     )
-    try:
-        resp = await asyncio.to_thread(
-            lambda: bedrock.converse(
-                modelId=ORCHESTRATOR_MODEL,
-                messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={"maxTokens": 50, "temperature": 0},
+    # Retry transient Bedrock errors (mainly ThrottlingException) with backoff so a
+    # busy moment doesn't masquerade as "couldn't identify the brand". We only fail
+    # closed when the MODEL itself answers no, or when retries are exhausted — never
+    # because a single call got throttled.
+    last_err = None
+    for attempt in range(3):
+        try:
+            resp = await asyncio.to_thread(
+                lambda: bedrock.converse(
+                    modelId=ORCHESTRATOR_MODEL,
+                    messages=[{"role": "user", "content": [{"text": prompt}]}],
+                    inferenceConfig={"maxTokens": 50, "temperature": 0},
+                )
             )
-        )
-        raw = resp["output"]["message"]["content"][0]["text"].strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1].removeprefix("json").strip()
-        return bool(json.loads(raw).get("match", False))
-    except Exception as e:
-        log.warning("entity_verify_failed", brand=name, error=str(e))
-        return False  # fail closed: if we can't verify, treat as unconfirmed
+            raw = resp["output"]["message"]["content"][0]["text"].strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1].removeprefix("json").strip()
+            return bool(json.loads(raw).get("match", False))
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+    log.warning("entity_verify_failed", brand=name, error=str(last_err))
+    return False  # fail closed: if we still can't verify, treat as unconfirmed
 
 
 class BrandNotConfirmed(Exception):
