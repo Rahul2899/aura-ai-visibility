@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select, delete as sql_delete
+from sqlalchemy import select, delete as sql_delete, func
 from sqlalchemy.orm import selectinload
 from src.api.auth import is_admin, limit_key, require_read, require_owner_or_admin
 from src.api.ratelimit import SlidingWindowLimiter, client_ip
@@ -305,6 +305,32 @@ async def get_insights(brand_id: int, session_id: str = None, x_admin_key: str =
             }
             for i in insights
         ]
+
+
+@router.get("/{brand_id}/competitors")
+async def get_competitors(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+    """Who the AI named INSTEAD of this brand, ranked by how often. Aggregated from
+    stored Mention rows (is_target_brand=False) across all this brand's probes — i.e.
+    the real rivals the models recommend, not brands the user happened to add. Read-only,
+    no audit cost. Names are merged case-insensitively."""
+    async with SessionLocal() as session:
+        brand = await session.get(Brand, brand_id)
+        if not brand:
+            raise HTTPException(404, "Brand not found")
+        require_read(brand, session_id, x_admin_key)
+        # Mention -> Run -> Prompt -> this brand; count distinct namings per competitor.
+        rows = (await session.execute(
+            select(func.lower(Mention.brand_name), func.count(Mention.id))
+            .join(Run, Mention.run_id == Run.id)
+            .join(Prompt, Run.prompt_id == Prompt.id)
+            .where(Prompt.brand_id == brand_id)
+            .where(Mention.is_target_brand.is_(False))
+            .group_by(func.lower(Mention.brand_name))
+            .order_by(func.count(Mention.id).desc())
+            .limit(8)
+        )).all()
+        # Title-case for display; the lowercased key was only for merging.
+        return [{"name": name.title(), "mentions": count} for name, count in rows if name and name.strip()]
 
 
 @router.delete("/{brand_id}/insights/{insight_id}", status_code=204)

@@ -10,6 +10,7 @@ import ProbeDetail from "./ProbeDetail";
 import ScoreRing from "./ScoreRing";
 import VisibilityChart from "./VisibilityChart";
 import RegionComparison from "./RegionComparison";
+import CompetitorBenchmark from "./CompetitorBenchmark";
 import ModelGrid from "../../components/ModelGrid";
 import { Reveal } from "../../components/Reveal";
 import { getSessionId, getAdminKey } from "../../lib/session";
@@ -454,6 +455,8 @@ export default function BrandPage() {
             )}
 
             <RegionComparison brandId={Number(id)} isExample={!!brand.is_example} insights={insights} />
+
+            <CompetitorBenchmark brandId={Number(id)} brandName={brand.name} industry={brand.industry} isExample={!!brand.is_example} />
 
             {probeDetail.probes.length > 0 && (
               <ProbeDetail probes={probeDetail.probes} auditDate={probeDetail.audit_date}
