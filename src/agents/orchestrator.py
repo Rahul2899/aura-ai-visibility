@@ -97,7 +97,7 @@ async def _fetch_safe(start_url: str, name: str) -> str | None:
         if r.status_code == 200:
             summary = extract_page_signal(r.text)
             if summary:
-                log.info("homepage_fetch_ok", brand=name, chars=len(summary), scheme=url.split(":")[0])
+                log.info("homepage_fetch_ok", brand=name, chars=len(summary), scheme=start_url.split(":")[0])
                 return summary
     return None
 
