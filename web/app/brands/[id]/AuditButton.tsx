@@ -16,7 +16,8 @@ export type JobState = {
   events?: { t: number; msg: string }[];
 };
 
-type PreviewState = { found: boolean; category: string; summary?: string; detected_region?: string | null; source?: string };
+type Candidate = { domain: string; title: string; description: string };
+type PreviewState = { found: boolean; category: string; summary?: string; detected_region?: string | null; source?: string; ambiguous?: boolean; candidates?: Candidate[] };
 
 export default function AuditButton({ brandId, brandName = "this brand", isExample = false, onJobChange }: { brandId: number; brandName?: string; isExample?: boolean; onJobChange?: (job: JobState | null) => void }) {
   const [job, setJob] = useState<JobState | null>(null);
@@ -115,7 +116,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
   // Step 1: cheap preview (web search + category inference, no probes) so the user can
   // confirm/correct the category before spending a full audit (e.g. "Fitness" could mean
   // an app or a gym). Shows the confirm card; the actual audit runs from there.
-  async function runPreview() {
+  async function runPreview(chosenDomain?: string) {
     if (started.current || previewing) return;
     setPreviewing(true);
     setLog([]);
@@ -123,7 +124,10 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
     try {
-      const res = await fetch(`${API}/audit/brands/${brandId}/preview?session_id=${sess}`, { method: "POST", headers });
+      // chosenDomain = a disambiguation pick: re-preview with that domain so the chosen
+      // entity's homepage becomes the authoritative source.
+      const dq = chosenDomain ? `&domain=${encodeURIComponent(chosenDomain)}` : "";
+      const res = await fetch(`${API}/audit/brands/${brandId}/preview?session_id=${sess}${dq}`, { method: "POST", headers });
       const data = res.ok ? await res.json() : { found: true, category: "", summary: "" };
       setRegion(data.detected_region ?? null);  // pre-select the detected market (null=Global)
       // Always show the confirm card so the user can verify the inferred CATEGORY before
@@ -298,7 +302,30 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
           button so it overlays cleanly instead of floating detached in the layout. */}
       {preview && !running && (
         <div className="absolute right-0 top-full mt-2 z-30 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-4 space-y-3 text-left">
-          {preview.found ? (
+          {preview.ambiguous && preview.candidates && preview.candidates.length > 0 ? (
+            <>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Which one do you mean?</p>
+                <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5">
+                  We found a few different companies with this name. Pick the right one so we audit yours, not a namesake.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                {preview.candidates.map((c) => (
+                  <button
+                    key={c.domain}
+                    onClick={() => runPreview(c.domain)}
+                    className="w-full text-left rounded-lg border border-slate-200 hover:border-[var(--accent)] hover:bg-[var(--accent-dim)] px-3 py-2 transition-colors"
+                  >
+                    <p className="text-sm font-bold text-slate-800 truncate">{c.title}</p>
+                    <p className="text-[11px] text-[var(--accent-2)] font-semibold">{c.domain}</p>
+                    {c.description && <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5 line-clamp-2">{c.description}</p>}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { setPreview(null); setLog([]); }} className="btn-ghost text-xs px-3 w-full">Cancel</button>
+            </>
+          ) : preview.found ? (
             <>
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Before we run the audit</p>

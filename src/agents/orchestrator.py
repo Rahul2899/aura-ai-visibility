@@ -161,6 +161,59 @@ async def _tavily_search(name: str, domain: str | None, industry: str | None) ->
     return None
 
 
+def _registrable_domain(url_or_host: str) -> str:
+    """Reduce a URL/host to a comparable key: drop scheme, path, port, and a leading
+    'www.'. Not a full public-suffix parse (overkill here) — just enough to tell whether
+    two search results point at the same site. 'https://www.fitstar.de/x' -> 'fitstar.de'."""
+    s = (url_or_host or "").strip().lower()
+    s = re.sub(r"^[a-z][a-z0-9+.\-]*://", "", s)   # scheme
+    s = s.split("/")[0].split("?")[0].split("#")[0]  # path/query/fragment
+    s = s.split("@")[-1].split(":")[0]               # userinfo/port
+    if s.startswith("www."):
+        s = s[4:]
+    return s.rstrip(".")
+
+
+def group_candidates(results: list[dict]) -> list[dict]:
+    """Group raw search results by registrable domain into distinct entity candidates.
+    Each result is {url, title, content}. Returns one candidate per domain:
+      {domain, title, description}. Deterministic — no LLM. Used to decide if a
+    name-only search returned ONE company or several same-named ones (ambiguous)."""
+    by_domain: dict[str, dict] = {}
+    for r in results:
+        dom = _registrable_domain(r.get("url", ""))
+        if not dom or dom in by_domain:
+            continue  # first result per domain wins (search is ranked)
+        by_domain[dom] = {
+            "domain": dom,
+            "title": (r.get("title") or dom).strip()[:80],
+            "description": (r.get("content") or "").strip()[:160],
+        }
+    return list(by_domain.values())
+
+
+async def _tavily_candidates(name: str, industry: str | None) -> list[dict]:
+    """Name-only search that PRESERVES individual results (unlike _tavily_search, which
+    blends them into one string). Used for disambiguation: returns distinct same-name
+    entity candidates so the user can pick the right one. Empty list = search unavailable."""
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_key:
+        return []
+    query = f"{name} {industry or ''} company".strip()
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": tavily_key, "query": query, "search_depth": "basic",
+                      "max_results": 6},
+            )
+        if r.status_code == 200:
+            return group_candidates(r.json().get("results", []))
+    except Exception as e:
+        log.warning("candidate_search_failed", brand=name, error=str(e))
+    return []
+
+
 async def _web_search_brand(name: str, domain: str | None, industry: str | None) -> tuple[str | None, str]:
     """Gather brand context. Returns (summary, source) where source is:
       "homepage" — scraped the brand's own domain: unambiguously the right company
@@ -798,22 +851,41 @@ class BrandNotConfirmed(Exception):
     """Raised when we cannot confidently identify which company the user means."""
 
 
-async def preview_audit(session: AsyncSession, brand_id: int) -> dict:
+async def preview_audit(session: AsyncSession, brand_id: int, domain_override: str | None = None) -> dict:
     """Cheap pre-audit step: gather web context, run the entity check, and infer the
     category — WITHOUT running any probes. Lets the UI show the user what Aura
     understood (which brand, which category) and let them confirm/correct it before
     spending a full audit. Returns:
       {found: bool, category: str, summary: str, source: str}
-    found=False means we couldn't confidently identify the brand (ask for a domain)."""
+    found=False means we couldn't confidently identify the brand (ask for a domain).
+
+    domain_override: when the user picks a disambiguation candidate, we persist that
+    domain on the brand so the homepage (authoritative) is used from here on — turning
+    an ambiguous name into a confirmed entity."""
     bedrock = _bedrock_client()
     brand = await session.get(Brand, brand_id)
     if not brand:
         raise ValueError(f"Brand {brand_id} not found")
     name = brand.name
+    if domain_override and domain_override.strip():
+        brand.domain = domain_override.strip()[:255]
+        await session.commit()
 
     context = await _get_brand_context_tool(session, brand_id)
     source = context.pop("_source", "none")
     web_ctx = context.get("web_context", "")
+
+    # Disambiguation: with NO domain, a name search can return several different
+    # same-named companies (e.g. "FitStar" the gym vs the app). When the top results
+    # span multiple distinct sites, surface them so the user picks the right one instead
+    # of us silently auditing whichever ranked first. Only when there's no domain to
+    # trust — a given domain is authoritative and skips this entirely.
+    if source != "homepage" and not brand.domain:
+        candidates = await _tavily_candidates(name, brand.industry)
+        if len(candidates) >= 2:
+            return {"found": False, "ambiguous": True, "candidates": candidates,
+                    "category": "", "summary": "", "source": source,
+                    "detected_region": None}
 
     # Same entity gate as orchestrate: a name-only search may be a different same-named
     # company, so verify before we claim we found the right one.
@@ -828,8 +900,8 @@ async def preview_audit(session: AsyncSession, brand_id: int) -> dict:
     # entity gate: the domain TLD is a valid market signal even when confirmation is unsure.
     # The UI shows this as a pre-selected, one-tap-overridable toggle (smart, never silent).
     detected_region = infer_region(brand.domain, web_ctx)
-    return {"found": found, "category": category, "summary": summary,
-            "source": source, "detected_region": detected_region}
+    return {"found": found, "ambiguous": False, "candidates": [], "category": category,
+            "summary": summary, "source": source, "detected_region": detected_region}
 
 
 async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, category_override: str | None = None, region: str | None = None, on_event=None) -> Insight | None:

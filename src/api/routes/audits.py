@@ -117,22 +117,25 @@ async def get_limit_status(request: Request, session_id: str = None, x_admin_key
 async def preview_audit_route(
     brand_id: int,
     session_id: str = None,
+    domain: str = None,
     x_admin_key: str = Header(None),
 ):
     """Cheap pre-audit step: web search + entity check + category inference, NO probes.
     Lets the UI confirm which brand/category before spending a full audit. Not rate-limited
-    (it's cheap and the real audit charges)."""
+    (it's cheap and the real audit charges). `domain` (optional): a disambiguation pick —
+    persisted on the brand so the chosen entity's homepage is used."""
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(status_code=404, detail="Brand not found.")
         require_owner_or_admin(brand, session_id, x_admin_key)
         try:
-            return await preview_audit(session, brand_id)
+            return await preview_audit(session, brand_id, domain_override=domain)
         except Exception as e:
             log.warning("preview_failed", brand_id=brand_id, error=str(e))
             # Don't block the flow on a preview failure — let the user run the audit anyway.
-            return {"found": True, "category": "", "summary": "", "source": "none"}
+            return {"found": True, "ambiguous": False, "candidates": [],
+                    "category": "", "summary": "", "source": "none"}
 
 
 @router.post("/brands/{brand_id}")
