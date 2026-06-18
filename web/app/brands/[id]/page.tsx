@@ -13,7 +13,7 @@ import RegionComparison from "./RegionComparison";
 import CompetitorBenchmark from "./CompetitorBenchmark";
 import ModelGrid from "../../components/ModelGrid";
 import { Reveal } from "../../components/Reveal";
-import { getSessionId, getAdminKey } from "../../lib/session";
+import { authHeaders } from "../../lib/session";
 import { domainMatchesBrand } from "../../lib/brands";
 import { ArrowLeft, Info, ArrowUp, ArrowDown, ChevronDown, Sparkles, Share2, GitCompare, Lightbulb, Target } from "lucide-react";
 
@@ -21,16 +21,6 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type Brand = { id: number; name: string; domain: string | null; industry: string | null; session_id?: string | null; is_example?: boolean };
 
-function apiHeaders(): Record<string, string> {
-  const sess = getSessionId();
-  const h: Record<string, string> = {};
-  if (sess === "admin") h["X-Admin-Key"] = getAdminKey();
-  return h;
-}
-
-function sessQs() {
-  return `session_id=${encodeURIComponent(getSessionId())}`;
-}
 
 function summaryToBullets(summary: string): string[] {
   return summary.split(/\.\s+/).filter(s => s.length > 20 && s.length < 120).slice(0, 3).map(s => s.trim().replace(/\.$/, ""));
@@ -79,9 +69,9 @@ export default function BrandPage() {
 
   async function shareReport() {
     try {
-      const res = await fetch(`${API}/brands/${id}/share?${sessQs()}`, {
+      const res = await fetch(`${API}/brands/${id}/share`, {
         method: "POST",
-        headers: apiHeaders(),
+        headers: authHeaders(),
       });
       if (!res.ok) { setShareLabel("Failed"); return; }
       const { token } = await res.json();
@@ -98,18 +88,17 @@ export default function BrandPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const qs = sessQs();
-    const hdrs = apiHeaders();
+    const hdrs = authHeaders();
     try {
       const [brandRes, insightsRes, biasRes, perfRes, compareRes, detailRes, darkRes, respRes] = await Promise.all([
-        fetch(`${API}/brands/${id}?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/${id}/insights?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/${id}/model-bias?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/${id}/probe-performance?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/compare?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/${id}/probe-detail?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/${id}/dark-matter?${qs}`, { headers: hdrs }),
-        fetch(`${API}/brands/${id}/probe-responses?${qs}`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/insights`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/model-bias`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/probe-performance`, { headers: hdrs }),
+        fetch(`${API}/brands/compare`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/probe-detail`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/dark-matter`, { headers: hdrs }),
+        fetch(`${API}/brands/${id}/probe-responses`, { headers: hdrs }),
       ]);
       if (brandRes.status === 403) { setError("You do not have access to this brand."); return; }
       if (brandRes.status === 404) { setError("Brand not found."); return; }

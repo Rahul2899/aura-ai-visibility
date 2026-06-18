@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getSessionId, getAdminKey } from "../../lib/session";
+import { authHeaders } from "../../lib/session";
 import { Globe, MapPin, Loader2 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -42,12 +42,11 @@ export default function RegionComparison({ brandId, isExample, insights }: {
     if (running) return;
     setError(null);
     setRunning(region);
-    const sess = getSessionId();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
     try {
-      const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, {
-        method: "POST", headers, body: JSON.stringify({ region }),
+      const res = await fetch(`${API}/audit/brands/${brandId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ region }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));

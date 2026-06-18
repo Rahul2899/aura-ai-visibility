@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { reloadPage } from "../../lib/navigation";
-import { getSessionId, getAdminKey } from "../../lib/session";
+import { authHeaders } from "../../lib/session";
 import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -120,14 +120,12 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     if (started.current || previewing) return;
     setPreviewing(true);
     setLog([]);
-    const sess = getSessionId();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
+    const headers = { "Content-Type": "application/json", ...authHeaders() };
     try {
       // chosenDomain = a disambiguation pick: re-preview with that domain so the chosen
       // entity's homepage becomes the authoritative source.
-      const dq = chosenDomain ? `&domain=${encodeURIComponent(chosenDomain)}` : "";
-      const res = await fetch(`${API}/audit/brands/${brandId}/preview?session_id=${sess}${dq}`, { method: "POST", headers });
+      const dq = chosenDomain ? `?domain=${encodeURIComponent(chosenDomain)}` : "";
+      const res = await fetch(`${API}/audit/brands/${brandId}/preview${dq}`, { method: "POST", headers });
       const data = res.ok ? await res.json() : { found: true, category: "", summary: "" };
       setRegion(data.detected_region ?? null);  // pre-select the detected market (null=Global)
       // Always show the confirm card so the user can verify the inferred CATEGORY before
@@ -155,11 +153,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     setJob({ status: "queued" });
     setLog(["Initializing audit session…"]);
 
-    const sess = getSessionId();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (sess === "admin") {
-      headers["X-Admin-Key"] = getAdminKey();
-    }
+    const headers = { "Content-Type": "application/json", ...authHeaders() };
 
     // Custom questions entered on the homepage form are handed off via sessionStorage;
     // they take precedence over the brand-page popover (used for manual re-runs).
@@ -169,7 +163,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     const body: Record<string, unknown> = { custom_questions };
     if (categoryOverride && categoryOverride.trim()) body.category = categoryOverride.trim();
     if (region && region.trim()) body.region = region.trim();  // null/Global -> omitted
-    const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}`, {
+    const res = await fetch(`${API}/audit/brands/${brandId}`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),

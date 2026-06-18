@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createBrand } from "../../lib/brands";
-import { getSessionId, getAdminKey } from "../../lib/session";
+import { authHeaders } from "../../lib/session";
 import { Swords, Loader2 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -19,10 +19,7 @@ export default function CompetitorBenchmark({ brandId, brandName, industry, isEx
   const router = useRouter();
 
   useEffect(() => {
-    const sess = getSessionId();
-    const headers: Record<string, string> = {};
-    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
-    fetch(`${API}/brands/${brandId}/competitors?session_id=${sess}`, { headers })
+    fetch(`${API}/brands/${brandId}/competitors`, { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : []))
       .then(setCompetitors)
       .catch(() => setCompetitors([]));

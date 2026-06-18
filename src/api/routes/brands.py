@@ -1,10 +1,10 @@
 import secrets
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Header, Request
+from fastapi import APIRouter, HTTPException, Header, Request, Depends
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, delete as sql_delete, func
 from sqlalchemy.orm import selectinload
-from src.api.auth import is_admin, limit_key, require_read, require_owner_or_admin
+from src.api.auth import is_admin, limit_key, require_read, require_owner_or_admin, get_session_id
 from src.api.ratelimit import SlidingWindowLimiter, client_ip
 from src.db import SessionLocal
 from src.models import Brand, Prompt, Run, Mention, Insight, ProbePerformance
@@ -114,7 +114,7 @@ async def get_shared_report(token: str):
 
 
 @router.post("/{brand_id}/share")
-async def create_share_link(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def create_share_link(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     """Owner generates (or returns existing) a read-only share token for a brand."""
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
@@ -128,7 +128,7 @@ async def create_share_link(brand_id: int, session_id: str = None, x_admin_key: 
 
 
 @router.get("/compare")
-async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)):
+async def compare_brands(session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brands = (await session.scalars(_brand_scope(select(Brand), session_id, x_admin_key))).all()
         brand_ids = [b.id for b in brands]
@@ -175,7 +175,7 @@ async def compare_brands(session_id: str = None, x_admin_key: str = Header(None)
 
 
 @router.get("")
-async def list_brands(session_id: str = None, x_admin_key: str = Header(None)):
+async def list_brands(session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brands = (await session.scalars(_brand_scope(select(Brand), session_id, x_admin_key))).all()
         return [{"id": b.id, "name": b.name, "domain": b.domain, "industry": b.industry,
@@ -216,7 +216,7 @@ async def create_brand(body: BrandCreate, request: Request, x_admin_key: str = H
 
 
 @router.get("/{brand_id}")
-async def get_brand(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_brand(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -233,7 +233,7 @@ async def get_brand(brand_id: int, session_id: str = None, x_admin_key: str = He
 
 
 @router.delete("/{brand_id}", status_code=204)
-async def delete_brand(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def delete_brand(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -265,7 +265,7 @@ async def delete_brand(brand_id: int, session_id: str = None, x_admin_key: str =
 
 
 @router.get("/{brand_id}/report")
-async def get_report(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_report(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -282,7 +282,7 @@ async def get_report(brand_id: int, session_id: str = None, x_admin_key: str = H
 
 
 @router.get("/{brand_id}/insights")
-async def get_insights(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_insights(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -308,7 +308,7 @@ async def get_insights(brand_id: int, session_id: str = None, x_admin_key: str =
 
 
 @router.get("/{brand_id}/competitors")
-async def get_competitors(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_competitors(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     """Who the AI named INSTEAD of this brand, ranked by how often. Aggregated from
     stored Mention rows (is_target_brand=False) across all this brand's probes — i.e.
     the real rivals the models recommend, not brands the user happened to add. Read-only,
@@ -337,7 +337,7 @@ async def get_competitors(brand_id: int, session_id: str = None, x_admin_key: st
 async def delete_insight(
     brand_id: int,
     insight_id: int,
-    session_id: str = None,
+    session_id: str = Depends(get_session_id),
     x_admin_key: str = Header(None),
 ):
     async with SessionLocal() as session:
@@ -358,7 +358,7 @@ async def delete_insight(
 
 
 @router.get("/{brand_id}/model-bias")
-async def get_model_bias(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_model_bias(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -391,7 +391,7 @@ async def get_model_bias(brand_id: int, session_id: str = None, x_admin_key: str
 
 
 @router.get("/{brand_id}/dark-matter")
-async def get_dark_matter(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_dark_matter(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -416,7 +416,7 @@ async def get_dark_matter(brand_id: int, session_id: str = None, x_admin_key: st
 
 
 @router.get("/{brand_id}/probe-detail")
-async def get_probe_detail(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_probe_detail(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:
@@ -463,7 +463,7 @@ async def get_probe_detail(brand_id: int, session_id: str = None, x_admin_key: s
 
 
 @router.get("/{brand_id}/probe-responses")
-async def get_probe_responses(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_probe_responses(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     """The verbatim answers each model gave, per question, with whether the target brand
     appeared. Read-only; backed by stored Run.response_text + Mention.is_target_brand so
     it proves the audit's results are real (the "what AI actually said" reveal)."""
@@ -524,7 +524,7 @@ async def get_probe_responses(brand_id: int, session_id: str = None, x_admin_key
 
 
 @router.get("/{brand_id}/probe-performance")
-async def get_probe_performance(brand_id: int, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_probe_performance(brand_id: int, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     async with SessionLocal() as session:
         brand = await session.get(Brand, brand_id)
         if not brand:

@@ -3,11 +3,11 @@ import secrets
 import time
 import structlog
 from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Header, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from src.api.auth import is_admin, limit_key, require_owner_or_admin
+from src.api.auth import is_admin, limit_key, require_owner_or_admin, get_session_id
 from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
@@ -102,7 +102,7 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
 
 
 @router.get("/limit-status")
-async def get_limit_status(request: Request, session_id: str = None, x_admin_key: str = Header(None)):
+async def get_limit_status(request: Request, session_id: str = Depends(get_session_id), x_admin_key: str = Header(None)):
     if is_admin(session_id, x_admin_key):
         return {"limit_reached": False, "count": 0, "max": 9999}
 
@@ -116,7 +116,7 @@ async def get_limit_status(request: Request, session_id: str = None, x_admin_key
 @router.post("/brands/{brand_id}/preview")
 async def preview_audit_route(
     brand_id: int,
-    session_id: str = None,
+    session_id: str = Depends(get_session_id),
     domain: str = None,
     x_admin_key: str = Header(None),
 ):
@@ -144,7 +144,7 @@ async def start_audit(
     background_tasks: BackgroundTasks,
     request: Request,
     body: AuditRequest = None,
-    session_id: str = None,
+    session_id: str = Depends(get_session_id),
     batch_id: str = None,  # Compare runs several brands as ONE comparison — they share a
                            # batch_id so the whole comparison costs a single audit credit.
     x_admin_key: str = Header(None),

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { friendlyName, providerKey } from "../lib/models";
-import { getSessionId, getAdminKey } from "../lib/session";
+import { authHeaders } from "../lib/session";
 import { createBrand, validateBrand } from "../lib/brands";
 import { Reveal } from "../components/Reveal";
 import {
@@ -63,12 +63,10 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const sess = getSessionId();
-    // Send the admin header so an admin sees their own brands here too; without it the
-    // server falls back to the example-only scope (same bug the dashboard had).
-    const adminHdr: Record<string, string> = sess === "admin" ? { "X-Admin-Key": getAdminKey() } : {};
+    // authHeaders() sends X-Session-Id (+ X-Admin-Key in admin mode) so the user sees
+    // their own brands; without it the server falls back to the example-only scope.
     Promise.all([
-      fetch(`${API}/brands/compare?session_id=${sess}`, { headers: adminHdr }).then(r => r.json()),
+      fetch(`${API}/brands/compare`, { headers: authHeaders() }).then(r => r.json()),
       fetch(`${API}/brands/industries`).then(r => r.json()).catch(() => []),
     ])
       .then(([brands, industryList]) => {
@@ -118,15 +116,12 @@ export default function ComparePage() {
     if (selected.length === 0 || allBrands.length === 0) return;
     setLoading(true);
     try {
-      const sess = getSessionId();
-      const hdrs: Record<string, string> = {};
-      if (sess === "admin") hdrs["X-Admin-Key"] = getAdminKey();
-      const qs = `session_id=${encodeURIComponent(sess)}`;
+      const hdrs = authHeaders();
       const results = await Promise.all(selected.map(async (id) => {
         const brand = allBrands.find(b => b.id === id);
         const [insights, bias] = await Promise.all([
-          fetch(`${API}/brands/${id}/insights?${qs}`, { headers: hdrs }).then(r => r.json()).catch(() => []),
-          fetch(`${API}/brands/${id}/model-bias?${qs}`, { headers: hdrs }).then(r => r.json()).catch(() => ({ models: [] })),
+          fetch(`${API}/brands/${id}/insights`, { headers: hdrs }).then(r => r.json()).catch(() => []),
+          fetch(`${API}/brands/${id}/model-bias`, { headers: hdrs }).then(r => r.json()).catch(() => ({ models: [] })),
         ]);
         return {
           id,
@@ -157,10 +152,7 @@ export default function ComparePage() {
     const jobMap: Record<number, string> = {};
     await Promise.all(selected.map(async (brandId) => {
       try {
-        const sess = getSessionId();
-        const hdrs: Record<string, string> = {};
-        if (sess === "admin") hdrs["X-Admin-Key"] = getAdminKey();
-        const res = await fetch(`${API}/audit/brands/${brandId}?session_id=${sess}&batch_id=${batchId}`, { method: "POST", headers: hdrs });
+        const res = await fetch(`${API}/audit/brands/${brandId}?batch_id=${batchId}`, { method: "POST", headers: authHeaders() });
         if (!res.ok) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: `HTTP ${res.status}` } })); return; }
         const { job_id } = await res.json();
         if (!job_id) { setJobs(prev => ({ ...prev, [brandId]: { status: "failed", error: "No job ID returned" } })); return; }

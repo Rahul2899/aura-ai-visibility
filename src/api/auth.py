@@ -1,6 +1,18 @@
 import os
-from fastapi import HTTPException
+from fastapi import HTTPException, Header
 from src.models import Brand
+
+
+def get_session_id(
+    x_session_id: str | None = Header(default=None),
+    session_id: str | None = None,
+) -> str | None:
+    """Resolve the caller's session token, preferring the X-Session-Id HEADER over the
+    legacy ?session_id= query param. The token is a bearer credential (proves brand
+    ownership); in a header it stays out of URLs/proxy logs/browser history. The query
+    fallback is kept for backward compatibility (cached frontends, old share links)
+    and can be removed once no clients send it in the URL."""
+    return x_session_id or session_id
 
 
 def is_admin(session_id: str | None, x_admin_key: str | None) -> bool:

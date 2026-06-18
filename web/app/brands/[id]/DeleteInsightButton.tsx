@@ -2,7 +2,7 @@
 
 import { Trash2 } from "lucide-react";
 import { reloadPage } from "../../lib/navigation";
-import { getSessionId, getAdminKey, isAdminMode } from "../../lib/session";
+import { isAdminMode, authHeaders } from "../../lib/session";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -25,15 +25,9 @@ export default function DeleteInsightButton({
 
   async function handleDelete() {
     if (!confirm("Delete this audit run?")) return;
-    const sess = getSessionId();
-    const headers: Record<string, string> = {};
-    if (sess === "admin") {
-      headers["X-Admin-Key"] = getAdminKey();
-    }
-
-    const res = await fetch(`${API}/brands/${brandId}/insights/${insightId}?session_id=${sess}`, { 
+    const res = await fetch(`${API}/brands/${brandId}/insights/${insightId}`, {
       method: "DELETE",
-      headers
+      headers: authHeaders(),
     });
 
     if (res.ok) {

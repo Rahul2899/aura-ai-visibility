@@ -50,3 +50,13 @@ export function exitAdmin(): void {
   localStorage.removeItem("aura_admin_mode");
   localStorage.removeItem("aura_admin_key");
 }
+
+// Standard auth headers for API calls. The session token goes in the X-Session-Id
+// HEADER (not a URL query param) so this bearer credential stays out of URLs, proxy
+// access logs, and browser history. Admin key is added only in admin mode. Spread the
+// result into a fetch's headers; merge with Content-Type when POSTing JSON.
+export function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = { "X-Session-Id": getSessionId() };
+  if (isAdminMode()) h["X-Admin-Key"] = getAdminKey();
+  return h;
+}

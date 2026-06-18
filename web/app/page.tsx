@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import ComparisonChart from "./components/ComparisonChart";
 import MagneticCursor from "./components/MagneticCursor";
 import { Reveal, CountUp } from "./components/Reveal";
-import { getSessionId, getAdminKey, isAdminMode, setAdminMode, setAdminKey, exitAdmin } from "./lib/session";
+import { isAdminMode, setAdminMode, setAdminKey, exitAdmin, authHeaders } from "./lib/session";
 import { createBrand, validateBrand, domainMatchesBrand } from "./lib/brands";
 import { reloadPage } from "./lib/navigation";
 import {
@@ -258,14 +258,13 @@ export default function Home() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const sess = getSessionId();
-      const adminHdr: Record<string, string> = sess === "admin" ? { "X-Admin-Key": getAdminKey() } : {};
+      const hdrs = authHeaders();
       const [compareRes, limitRes, industriesRes] = await Promise.all([
-        // MUST send the admin header here too: without it the server can't verify admin
-        // and falls back to the example-only scope, so an admin's own brands vanish on
-        // refresh. (The key is computed above for limit-status; reuse it.)
-        fetch(`${API}/brands/compare?session_id=${sess}`, { headers: adminHdr }),
-        fetch(`${API}/audit/limit-status?session_id=${sess}`, { headers: adminHdr }),
+        // MUST send auth headers: the X-Session-Id (and X-Admin-Key in admin mode) scope
+        // the results to this user; without them the server falls back to example-only
+        // and the user's own brands vanish on refresh.
+        fetch(`${API}/brands/compare`, { headers: hdrs }),
+        fetch(`${API}/audit/limit-status`, { headers: hdrs }),
         fetch(`${API}/brands/industries`),
       ]);
       if (compareRes.ok) setBrands(await compareRes.json());
@@ -367,11 +366,9 @@ export default function Home() {
     }
     if (!confirm(`Delete "${targetBrand?.name ?? "this brand"}" and all its data? This cannot be undone.`)) return;
     setDeleting(id);
-    const sess = getSessionId();
-    // Admin must send X-Admin-Key to delete brands owned by other sessions.
-    const headers: Record<string, string> = {};
-    if (sess === "admin") headers["X-Admin-Key"] = getAdminKey();
-    const res = await fetch(`${API}/brands/${id}?session_id=${sess}`, { method: "DELETE", headers });
+    // authHeaders() sends X-Session-Id (+ X-Admin-Key in admin mode, needed to delete
+    // brands owned by other sessions).
+    const res = await fetch(`${API}/brands/${id}`, { method: "DELETE", headers: authHeaders() });
     if (res.status === 403) alert("You can only delete brands you added.");
     setDeleting(null);
     load();

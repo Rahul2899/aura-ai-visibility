@@ -179,7 +179,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type", "X-Admin-Key"],
+    allow_headers=["Content-Type", "X-Admin-Key", "X-Session-Id"],
 )
 
 app.include_router(brands_router)
