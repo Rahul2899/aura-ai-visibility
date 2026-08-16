@@ -22,6 +22,7 @@ class AuditRequest(BaseModel):
     custom_questions: list[str] = []
     category: str | None = None  # user-confirmed category from the preview step (optional)
     region: str | None = None    # user-chosen market ("Europe", "Germany", ...) or None=Global
+    aliases: list[str] = []      # optional product/legal names counted as the target
 
     # Defense-in-depth caps on attacker-controlled input that flows into LLM prompts.
     # Bounds the payload (no huge-body parsing) and the per-question length (a long
@@ -38,6 +39,13 @@ class AuditRequest(BaseModel):
     @classmethod
     def _cap_category(cls, v: str | None) -> str | None:
         return v[:120] if v else v
+
+    @field_validator("aliases")
+    @classmethod
+    def _cap_aliases(cls, v: list[str]) -> list[str]:
+        if len(v) > 10:
+            raise ValueError("Too many aliases (max 10).")
+        return [alias.strip()[:80] for alias in v if alias.strip()]
 
 router = APIRouter(prefix="/audit")
 
@@ -66,7 +74,7 @@ async def _refund_audit_slot(rate_key: str | None):
         log.warning("audit_refund_failed", rate_key=rate_key, error=str(e))
 
 
-async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None, category: str | None = None, region: str | None = None):
+async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str] | None = None, rate_key: str | None = None, category: str | None = None, region: str | None = None, aliases: list[str] | None = None):
     _jobs[job_id]["status"] = "running"
 
     def _emit(msg: str):
@@ -77,7 +85,7 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
 
     try:
         async with SessionLocal() as session:
-            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, category_override=category, region=region, on_event=_emit)
+            insight = await orchestrate(session, brand_id, custom_questions=custom_questions, category_override=category, region=region, aliases=aliases, on_event=_emit)
         if insight:
             _jobs[job_id].update({
                 "status": "completed",
@@ -273,6 +281,7 @@ async def start_audit(
     custom_questions = [q.strip() for q in (body.custom_questions if body else []) if q.strip()][:5]
     category = (body.category.strip()[:60] if body and body.category and body.category.strip() else None)
     region = (body.region.strip()[:60] if body and body.region and body.region.strip() else None)
+    aliases = body.aliases if body else []
 
     # Unguessable job id. Job status is fetched without auth (the browser polls it
     # right after starting), so a sequential "job_N" would let anyone enumerate and
@@ -280,14 +289,14 @@ async def start_audit(
     job_id = f"job_{secrets.token_urlsafe(16)}"
     _jobs[job_id] = {"status": "queued", "brand_id": brand_id, "events": []}
 
-    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None, cat: str | None, reg: str | None):
+    async def _run_with_semaphore(jid: str, bid: int, cq: list[str], rk: str | None, cat: str | None, reg: str | None, target_aliases: list[str]):
         async with sem:
-            await _run_audit_job(jid, bid, cq, rate_key=rk, category=cat, region=reg)
+            await _run_audit_job(jid, bid, cq, rate_key=rk, category=cat, region=reg, aliases=target_aliases)
 
     if sem is not None:
-        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key, category, region)
+        background_tasks.add_task(_run_with_semaphore, job_id, brand_id, custom_questions, rate_key, category, region, aliases)
     else:
-        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key, category=category, region=region)
+        background_tasks.add_task(_run_audit_job, job_id, brand_id, custom_questions, rate_key=rate_key, category=category, region=region, aliases=aliases)
 
     return {"job_id": job_id, "status": "queued"}
 

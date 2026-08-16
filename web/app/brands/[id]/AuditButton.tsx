@@ -28,6 +28,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [editCategory, setEditCategory] = useState("");
+  const [aliasesText, setAliasesText] = useState("");
   // Chosen market for the audit: the detected home region, or null = Global. Pre-set from
   // the preview's detected_region; the user can flip it on the confirm card before running.
   const [region, setRegion] = useState<string | null>(null);
@@ -65,6 +66,10 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
       .map(q => q.trim())
       .filter(q => q.length > 5)
       .slice(0, 5);
+  }
+
+  function parseAliases(): string[] {
+    return aliasesText.split(/[\n,]/).map(alias => alias.trim()).filter(Boolean).slice(0, 10);
   }
 
   function pollJob(job_id: string) {
@@ -177,6 +182,8 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
     const body: Record<string, unknown> = { custom_questions };
     if (categoryOverride && categoryOverride.trim()) body.category = categoryOverride.trim();
     if (region && region.trim()) body.region = region.trim();  // null/Global -> omitted
+    const aliases = parseAliases();
+    if (aliases.length) body.aliases = aliases;
     const res = await fetch(`${API}/audit/brands/${brandId}`, {
       method: "POST",
       headers,
@@ -341,11 +348,22 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
                 <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5">
                   We score whether your brand surfaces for buyers asking about this category. Edit it if it&apos;s not quite right.
                 </p>
+                {preview.summary && (
+                  <p className="mt-2 text-[11px] leading-snug text-slate-500 border-l-2 border-[var(--accent)] pl-2">
+                    Identity evidence from {preview.source === "homepage" ? "the selected official site" : "web search"}: {preview.summary}
+                  </p>
+                )}
               </div>
               <input
                 value={editCategory}
                 onChange={e => setEditCategory(e.target.value)}
                 placeholder="e.g. premium chocolate, gym membership"
+                className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
+              />
+              <input
+                value={aliasesText}
+                onChange={e => setAliasesText(e.target.value)}
+                placeholder="Also count aliases, product names, or legal names"
                 className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
               />
               {/* Market to measure. Always shown: region changes the result, and when

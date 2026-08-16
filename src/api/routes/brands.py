@@ -16,6 +16,11 @@ router = APIRouter(prefix="/brands")
 # far above any legitimate use (the audit limit allows only 2 audits per session).
 _create_limiter = SlidingWindowLimiter(max_events=30, window_seconds=3600)
 
+
+def _measurement(insight: Insight) -> dict:
+    raw = insight.raw_tool_calls or {}
+    return raw.get("measurement", {}) if isinstance(raw, dict) else {}
+
 INDUSTRIES = [
     "HR Tech / Recruiting",
     "SaaS / B2B Software",
@@ -96,9 +101,10 @@ async def _build_report(session, brand: Brand) -> dict:
             "key_findings": latest.key_findings or [],
             "recommendations": latest.recommendations or [],
             "model_breakdown": latest.model_breakdown or {},
-            "probe_count": latest.probe_count,
-            "created_at": latest.created_at.isoformat(),
-            "region": latest.region,
+                "probe_count": latest.probe_count,
+                "created_at": latest.created_at.isoformat(),
+                "region": latest.region,
+                "measurement": _measurement(latest),
         },
     }
 
@@ -161,6 +167,7 @@ async def compare_brands(session_id: str = Depends(get_session_id), x_admin_key:
                 "trend": trend,
                 "probe_count": latest.probe_count if latest else None,
                 "last_run": latest.created_at.isoformat() if latest else None,
+                "measurement": _measurement(latest) if latest else {},
                 "is_example": brand.session_id == "example",
             })
 
@@ -302,6 +309,7 @@ async def get_insights(brand_id: int, session_id: str = Depends(get_session_id),
                 "visibility_pct": i.visibility_pct,
                 "model_breakdown": i.model_breakdown,
                 "region": i.region,
+                "measurement": _measurement(i),
             }
             for i in insights
         ]

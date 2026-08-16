@@ -65,9 +65,9 @@ describe("Homepage Dashboard Component", () => {
     global.fetch = mockFetch([]);
     render(<Home />);
     // During loading the onboarding content is not yet shown (skeleton is up).
-    expect(screen.queryByText("How Aura works")).not.toBeInTheDocument();
+    expect(screen.queryByText("How MapTheModel works")).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText("How Aura works")).toBeInTheDocument();
+      expect(screen.getByText("How MapTheModel works")).toBeInTheDocument();
     });
     expect(screen.getByLabelText("Brand name")).toBeInTheDocument();
     expect(screen.queryByText("Anthropic Claude 3.5 Sonnet")).not.toBeInTheDocument();

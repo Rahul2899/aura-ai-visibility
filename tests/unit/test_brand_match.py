@@ -1,5 +1,5 @@
 """Brand-name matching: case- and diacritic-insensitive whole-word match."""
-from src.agents.orchestrator import _brand_matches, _fold
+from src.agents.orchestrator import _brand_matches, _cohort_questions, _fold
 
 
 def test_exact_match():
@@ -48,3 +48,15 @@ def test_separator_stripping_does_not_create_false_positives():
     # tightened forms is exact-only, so a short target can't swallow a longer name.
     assert not _brand_matches("Lever", "Clever Bit")
     assert not _brand_matches("HP", "H P")  # too short to tighten safely
+
+
+def test_aliases_match_without_broadening_other_names():
+    assert _brand_matches(["Google", "Google Workspace"], "Google Workspace")
+    assert not _brand_matches(["Google", "Google Workspace"], "Googler")
+
+
+def test_reads_legacy_and_metadata_cohorts():
+    legacy = [{"question": "best note apps"}]
+    current = {"questions": legacy, "measurement": {"cohort_id": "abc"}}
+    assert _cohort_questions(legacy) == ["best note apps"]
+    assert _cohort_questions(current) == ["best note apps"]

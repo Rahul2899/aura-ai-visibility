@@ -517,10 +517,12 @@ def _fold(s: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
-def _brand_matches(target: str, extracted: str) -> bool:
+def _brand_matches(target: str | list[str], extracted: str) -> bool:
     """Whole-word match of the target brand against an extracted brand name, so e.g.
     "Lever" matches "Lever" / "Lever ATS" but NOT "Cleverbit" or "leverage" (a naive
     substring check would false-positive on those). Diacritic-insensitive."""
+    if isinstance(target, list):
+        return any(_brand_matches(name, extracted) for name in target)
     t, e = _fold(target.strip()), _fold(extracted.strip())
     if not t:
         return False
@@ -538,7 +540,7 @@ def _brand_matches(target: str, extracted: str) -> bool:
     return len(t_tight) > 2 and t_tight == e_tight
 
 
-async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str, on_event=None) -> dict:
+async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brands: list[str], on_event=None) -> dict:
     """Run one model. Returns a dict with `failed` flag so failed calls are excluded from the
     score instead of being counted as a real non-mention (which would corrupt visibility %).
     Uses the structured extractor — not a naive string match — to prevent hallucination false positives."""
@@ -559,7 +561,7 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
         # Usage delta across extract_mentions, which may retry internally. Captured from
         # the client's running totals so the extractor's return type stays unchanged.
         extract_usage = {k: client.usage[k] - before[k] for k in ("tokens_in", "tokens_out", "latency_ms")}
-        target_mention = next((m for m in extraction.mentions if _brand_matches(target_brand, m.brand_name)), None)
+        target_mention = next((m for m in extraction.mentions if _brand_matches(target_brands, m.brand_name)), None)
         mentioned = target_mention is not None
         # Capture the COMPETITORS the model named (everyone who isn't the target). This is
         # the evidence that powers the "why competitors won / how to improve" feature — the
@@ -567,7 +569,7 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
         competitors = [
             {"name": m.brand_name, "position": m.position, "cited_urls": list(getattr(m, "cited_urls", []) or [])}
             for m in extraction.mentions
-            if not _brand_matches(target_brand, m.brand_name)
+            if not _brand_matches(target_brands, m.brand_name)
         ]
         if on_event:
             on_event(f"{friendly(model)}: {'✓ mentioned' if mentioned else '✗ not found'}")
@@ -607,13 +609,13 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
 _PROBE_CALL_SEMAPHORE = asyncio.Semaphore(6)
 
 
-async def _probe_all_models(prompt_text: str, target_brand: str, on_event=None) -> list[dict]:
+async def _probe_all_models(prompt_text: str, target_brands: list[str], on_event=None) -> list[dict]:
     """Pure I/O: run one probe's prompt across every model in parallel. Touches NO DB —
     so many probes can run this concurrently. Returns the raw per-model result dicts;
     the caller persists them serially on the shared session via `_persist_probe`."""
     async def bounded(p, m):
         async with _PROBE_CALL_SEMAPHORE:
-            return await _probe_one_model(p, m, prompt_text, target_brand, on_event=on_event)
+            return await _probe_one_model(p, m, prompt_text, target_brands, on_event=on_event)
 
     return await asyncio.gather(*[bounded(p, m) for m, p in MODEL_CONFIGS])
 
@@ -805,6 +807,19 @@ def _strip_brand(text: str, brand: str) -> str:
     if not text or not brand:
         return text or ""
     return re.sub(rf"(?<![a-z0-9]){re.escape(brand)}(?![a-z0-9])", "the brand", text, flags=re.IGNORECASE)
+
+
+def _cohort_questions(raw_tool_calls: object) -> list[str]:
+    """Read a prior scored cohort. Older insights stored a list; new ones add metadata."""
+    items = raw_tool_calls.get("questions", []) if isinstance(raw_tool_calls, dict) else raw_tool_calls
+    if not isinstance(items, list):
+        return []
+    return [item.get("question", "").strip() for item in items
+            if isinstance(item, dict) and isinstance(item.get("question"), str) and item["question"].strip()]
+
+
+def _cohort_id(questions: list[str]) -> str:
+    return hashlib.sha256("\n".join(questions).encode()).hexdigest()[:12]
 
 
 CATEGORY_INFER_PROMPT = PRODUCT_CONTEXT + """
@@ -1183,7 +1198,7 @@ async def preview_audit(session: AsyncSession, brand_id: int, domain_override: s
             "summary": summary, "source": source, "detected_region": detected_region}
 
 
-async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, category_override: str | None = None, region: str | None = None, on_event=None) -> Insight | None:
+async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = False, custom_questions: list[str] | None = None, category_override: str | None = None, region: str | None = None, aliases: list[str] | None = None, on_event=None) -> Insight | None:
     """Two-phase audit: (A) a stronger model writes buyer questions grounded in live
     web context, (B) probes run in parallel across the model panel and a fast model
     writes the factual summary. Returns the saved Insight, or None on dry_run."""
@@ -1197,6 +1212,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     llm = ConverseShim()
     brand = await session.get(Brand, brand_id)
     target_brand = brand.name if brand else ""
+    target_brands = [target_brand, *[alias for alias in (aliases or []) if alias and alias != target_brand]]
     model_hits: dict[str, list[bool]] = {}  # {model: [mentioned_per_probe]}
 
     log.info("orchestrate_start", brand_id=brand_id, dry_run=dry_run)
@@ -1222,8 +1238,25 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             log.warning("brand_unconfirmed_mismatch", brand_id=brand_id, name=target_brand)
             raise BrandNotConfirmed(target_brand)
 
-    emit("Gathered brand context. Generating questions…")
-    questions, inferred_category = await _generate_questions(llm, context, custom_questions, category_override=category_override, region=region)
+    # A trend must hold its questions constant. Reuse the last cohort unless the user
+    # deliberately changes category, market, or adds custom questions (all legitimate
+    # reasons to start a new measurement).
+    previous = await session.scalar(
+        select(Insight).where(Insight.brand_id == brand_id).order_by(Insight.created_at.desc())
+    )
+    questions = []
+    cohort_reused = False
+    if previous and not custom_questions and not category_override and previous.region == (region or None):
+        questions = _cohort_questions(previous.raw_tool_calls)
+        cohort_reused = bool(questions)
+    if cohort_reused:
+        inferred_category = brand.industry or "this product category"
+        emit("Reusing the prior question set for a comparable trend…")
+    else:
+        emit("Gathered brand context. Generating questions…")
+        questions, inferred_category = await _generate_questions(
+            llm, context, custom_questions, category_override=category_override, region=region
+        )
     if not questions:
         log.error("no_questions_generated", brand_id=brand_id)
         return None
@@ -1254,7 +1287,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     # sequential ~170s (10 probes x ~17s each) into roughly the latency of a single probe.
     emit(f"Asking {len(MODEL_CONFIGS)} models across {len(questions)} questions…")
     raw_per_question = await asyncio.gather(
-        *[_probe_all_models(q, target_brand, on_event=emit) for q in questions]
+        *[_probe_all_models(q, target_brands, on_event=emit) for q in questions]
     )
 
     probe_results = []
@@ -1327,7 +1360,20 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
         probe_count=len(questions),
         visibility_pct=visibility_pct,
         model_breakdown=model_breakdown,
-        raw_tool_calls=[{"question": q} for q in questions],
+        raw_tool_calls={
+            "questions": [{"question": q} for q in questions],
+            "measurement": {
+                "cohort_id": _cohort_id(questions),
+                "cohort_reused": cohort_reused,
+                "expected_responses": sum(len(r) for q, r in zip(questions, raw_per_question)
+                                          if not _brand_matches(target_brand, q)),
+                "completed_responses": sum(
+                    1 for q, results in zip(questions, raw_per_question)
+                    if not _brand_matches(target_brand, q)
+                    for result in results if not result.get("failed")
+                ),
+            },
+        },
         region=(region.strip() if region and region.strip() else None),
     )
     session.add(insight)

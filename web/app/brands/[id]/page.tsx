@@ -167,6 +167,7 @@ export default function BrandPage() {
   const latest = insights[0] ?? null;
   const previous = insights[1] ?? null;
   const trend = latest && previous ? latest.visibility_pct - previous.visibility_pct : null;
+  const measurement = latest?.measurement ?? {};
   const chartData = [...insights].reverse().map((ins: { visibility_pct: number; created_at: string }) => ({
     label: new Date(ins.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     visibility: ins.visibility_pct ?? 0,
@@ -279,10 +280,16 @@ export default function BrandPage() {
                     title="The market this score was framed for. AI models are trained on globally-skewed data, so a regional score reflects how the questions were asked, not a guarantee of region-specific recall.">
                     Scored for: {latest.region ?? "Global"}
                   </span>
+                  <span className="text-[11px] font-bold text-slate-500">
+                    {measurement.completed_responses ?? "—"}/{measurement.expected_responses ?? "—"} model responses completed
+                    {measurement.cohort_reused && " · same question set"}
+                  </span>
                 </div>
                 {trend !== null && (
                   <div className={`text-center px-5 py-3.5 rounded-2xl border flex flex-col items-center justify-center min-w-36 cursor-help ${trend > 0 ? "border-emerald-200 bg-emerald-50" : trend < 0 ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}
-                    title="Scores vary between audits: AI responses are non-deterministic, each run uses fresh probe questions, and failed models are excluded from the score.">
+                    title={measurement.cohort_reused
+                      ? "This trend uses the same scored question set. AI answers can still vary, and failed model calls are excluded."
+                      : "Question set, market, or category changed between these runs, so this trend is directional rather than directly comparable."}>
                     <p className={`text-3xl font-extrabold tabular ${trend > 0 ? "text-emerald-600" : trend < 0 ? "text-red-600" : "text-slate-400"}`}>
                       {trend > 0 ? "+" : ""}{trend.toFixed(1)}%
                     </p>
