@@ -236,7 +236,19 @@ def _is_company_site(domain: str) -> bool:
     return True
 
 
-CANDIDATE_CLASSIFY_PROMPT = """You are deciding which search results are a company's OWN website, and which are pages that merely WRITE ABOUT it.
+# Shared preamble for the identity steps. Each of these prompts used to state only its
+# own narrow task, so a model deciding "is this the brand's site" or "what category is
+# this" had no idea why it was being asked, and no principle to fall back on when the
+# source text was ambiguous — which is exactly when these calls go wrong. Stating the
+# product once, in one place, keeps the steps consistent instead of each drifting.
+PRODUCT_CONTEXT = """MapTheModel measures how often AI assistants recommend a brand. It runs buyer-style questions across several AI models and scores how often the brand is named.
+
+Everything downstream depends on correctly identifying WHICH company is being audited and WHAT MARKET it competes in. Getting this wrong measures the wrong company, or the right company against a market it is not in, and the resulting score is worse than useless because it looks real."""
+
+
+CANDIDATE_CLASSIFY_PROMPT = PRODUCT_CONTEXT + """
+
+You are deciding which search results are a company's OWN website, and which are pages that merely WRITE ABOUT it.
 
 You are given a brand name and a numbered list of search results (domain, page title, page snippet).
 
@@ -786,9 +798,13 @@ def _strip_brand(text: str, brand: str) -> str:
     return re.sub(rf"(?<![a-z0-9]){re.escape(brand)}(?![a-z0-9])", "the brand", text, flags=re.IGNORECASE)
 
 
-CATEGORY_INFER_PROMPT = """You name the CATEGORY a buyer is choosing between when they end up with a given brand.
+CATEGORY_INFER_PROMPT = PRODUCT_CONTEXT + """
 
-You are given a brand name and some web context about it. The context may come from an article, blog or directory that merely COVERS the brand. Describe the BRAND, never the publication: if the text reads like a magazine or blog about an industry, ignore what that publisher is and label the brand it is discussing.
+You name the CATEGORY a buyer is choosing between when they end up with a given brand.
+
+You are given a brand name and some web context about it. That context is often NOT the brand's own website — it may be an article, blog, review or directory that merely covers the brand. That is fine and expected: such a page still describes the brand, and your job is to read through the source to the brand underneath it.
+
+Two different things appear in that text: the PUBLISHER (whoever wrote the page) and the SUBJECT (the brand named above). Always describe the SUBJECT. If the page reads like a magazine or blog about an industry, do not label the brand as a publication, a news site, or a platform for that industry — label what the brand itself sells. Language belonging to the publisher ("news", "insights", "the leading resource for") describes the publisher, not the brand.
 
 First decide what KIND of thing the brand is:
 - a place people GO (cafe, restaurant, gym, hotel, salon, shop) -> name the venue category, e.g. "coffee shop chain", "fast casual restaurant"
@@ -988,7 +1004,9 @@ async def _generate_recommendations(llm, brand_name: str, industry: str | None,
         return []
 
 
-DOMAIN_OWNERSHIP_PROMPT = """You are checking whether a website belongs TO a brand, or merely writes ABOUT it.
+DOMAIN_OWNERSHIP_PROMPT = PRODUCT_CONTEXT + """
+
+You are checking whether a website belongs TO a brand, or merely writes ABOUT it.
 
 You are given a brand name and the text of a website's homepage.
 
