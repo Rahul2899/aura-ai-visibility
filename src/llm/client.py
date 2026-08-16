@@ -162,10 +162,20 @@ class OpenRouterClient:
                 # backing off 3x per call turns a whole audit into a slow hang before it
                 # fails. Raise a distinct type so the API layer can report "out of
                 # credits" rather than leaking a raw HTTP error to the user.
-                if e.response.status_code == 402:
-                    log.warning("out_of_credits", model=model)
+                # 402 = balance spent. 403 with a budget message = the account's own
+                # spend cap was hit, which presents identically to the user (no audits
+                # until someone tops up or raises the cap) and is just as un-retryable.
+                # A 403 for any other reason is a real error and must not be disguised.
+                body = (e.response.text or "")[:300]
+                if e.response.status_code == 402 or (
+                    e.response.status_code == 403 and "budget" in body.lower()
+                ):
+                    log.warning("out_of_credits", model=model, status=e.response.status_code,
+                                detail=body)
                     raise OutOfCreditsError(
-                        "OpenRouter account is out of credits. Top up at https://openrouter.ai/credits."
+                        "OpenRouter is not accepting requests: credits are spent or the "
+                        "account's spend limit was reached. Check https://openrouter.ai/credits "
+                        "and the monthly limit in account settings."
                     ) from e
                 if attempt == max_retries - 1:
                     raise

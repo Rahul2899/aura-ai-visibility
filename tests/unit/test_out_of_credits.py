@@ -58,6 +58,46 @@ async def test_other_http_errors_still_retry(monkeypatch):
     assert calls["n"] == 2
 
 
+def _client_returning_body(monkeypatch, status, body):
+    calls = {"n": 0}
+    client = OpenRouterClient()
+
+    async def fake_post(url, headers=None, json=None):
+        calls["n"] += 1
+        return httpx.Response(status, text=body, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(client.http, "post", fake_post)
+    return client, calls
+
+
+@pytest.mark.asyncio
+async def test_403_budget_limit_is_treated_as_out_of_credits(monkeypatch):
+    """An account spend cap returns 403, not 402, and presented to the user as a raw
+    "Client error '403 Forbidden'" mid-audit. Same situation as an empty balance."""
+    client, calls = _client_returning_body(
+        monkeypatch, 403, '{"error":{"message":"Budget limit exceeded (monthly limit)."}}')
+
+    with pytest.raises(OutOfCreditsError):
+        await client.complete(model="openai/gpt-5.4-mini", messages=[{"role": "user", "content": "hi"}])
+
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_unrelated_403_is_not_disguised(monkeypatch):
+    """Only budget 403s mean 'out of credits'. A revoked key is a different problem and
+    must not be reported as a billing one."""
+    client, _ = _client_returning_body(
+        monkeypatch, 403, '{"error":{"message":"Key disabled"}}')
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.complete(
+            model="openai/gpt-5.4-mini",
+            messages=[{"role": "user", "content": "hi"}],
+            max_retries=2,
+        )
+
+
 @pytest.mark.asyncio
 async def test_probe_propagates_out_of_credits(monkeypatch):
     """The probe's blanket `except Exception` marks failures as skippable. Out-of-credits

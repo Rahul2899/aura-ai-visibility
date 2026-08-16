@@ -288,6 +288,8 @@ async def _classify_candidates(llm, brand_name: str, results: list[dict]) -> lis
         # no site in the top results), but returning nothing would strand the user, so
         # hand back the full list and let the entity gate downstream catch it.
         return official or results
+    except OutOfCreditsError:
+        raise  # surface the account problem instead of silently skipping the check
     except Exception as e:
         log.warning("candidate_classify_failed", brand=brand_name, error=str(e))
         return results
@@ -831,6 +833,10 @@ async def _infer_category(llm, name: str, industry: str | None, web_context: str
         label = _strip_brand(label, name).strip()
         if label and len(label) < 60:
             return label
+    except OutOfCreditsError:
+        # Don't fall back to a generic category here: the audit is about to fail for
+        # lack of credits anyway, and a guessed category would be measured as if real.
+        raise
     except Exception as e:
         log.warning("category_infer_failed", brand=name, error=str(e))
     # Fall back to the stated industry, then a safe generic.
@@ -1010,6 +1016,10 @@ async def _verify_entity(llm, name: str, industry: str | None, web_context: str)
             if raw.startswith("```"):
                 raw = raw.split("```")[1].removeprefix("json").strip()
             return bool(json.loads(raw).get("match", False))
+        except OutOfCreditsError:
+            # This gate fails closed ("couldn't identify the brand"), which would blame
+            # the brand for what is an account problem. Let the real reason surface.
+            raise
         except Exception as e:
             last_err = e
             if attempt < 2:

@@ -16,7 +16,7 @@ import httpx
 import structlog
 from dotenv import load_dotenv
 
-from src.llm.client import OPENROUTER_BASE
+from src.llm.client import OPENROUTER_BASE, OutOfCreditsError
 
 # Headroom for reasoning models, which bill hidden reasoning tokens against the SAME
 # max_tokens budget as the visible answer. Call sites size maxTokens for the answer
@@ -73,6 +73,18 @@ class ConverseShim:
                 if resp.status_code == 429:
                     time.sleep(2 ** attempt)
                     continue
+                # Same credit/budget stop as OpenRouterClient. The orchestration calls
+                # run through this shim, so without it an exhausted account surfaced as
+                # a raw "403 Forbidden" mid-audit instead of "out of credits".
+                if resp.status_code == 402 or (
+                    resp.status_code == 403 and "budget" in (resp.text or "").lower()
+                ):
+                    log.warning("out_of_credits", model=modelId, status=resp.status_code)
+                    raise OutOfCreditsError(
+                        "OpenRouter is not accepting requests: credits are spent or the "
+                        "account's spend limit was reached. Check https://openrouter.ai/credits "
+                        "and the monthly limit in account settings."
+                    )
                 resp.raise_for_status()
                 data = resp.json()
                 usage = data.get("usage", {})
@@ -88,6 +100,8 @@ class ConverseShim:
                         "outputTokens": usage.get("completion_tokens"),
                     },
                 }
+            except OutOfCreditsError:
+                raise  # not transient: retrying just delays the same failure
             except Exception as e:
                 last_err = e
                 if attempt == max_retries - 1:
