@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Rahul2899/map-the-model">View source on GitHub</a>
+</p>
+
+<p align="center">
   <img alt="Python" src="https://img.shields.io/badge/Python-FastAPI-009688?logo=fastapi&logoColor=white">
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-TypeScript-000000?logo=next.js&logoColor=white">
   <img alt="OpenRouter" src="https://img.shields.io/badge/LLM-OpenRouter-6467f2?logo=openai&logoColor=white">
@@ -212,3 +216,9 @@ web/                       Next.js dashboard (brand detail, compare, share)
 caddy/                     reverse proxy + auto-TLS
 tests/                     pytest (unit + integration)
 ```
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).

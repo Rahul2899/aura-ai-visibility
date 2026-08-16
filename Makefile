@@ -1,17 +1,14 @@
-.PHONY: up down migrate initdb seed audit report eval install
+.PHONY: up down initdb seed audit report eval install
 
 install:
 	pip install -r requirements.txt
 
 up:
-	docker-compose up -d
-	@echo "Postgres running on localhost:5432"
+	docker compose up -d
+	@echo "Stack running at http://localhost"
 
 down:
-	docker-compose down
-
-migrate:
-	alembic upgrade head
+	docker compose down
 
 initdb:
 	python -m src.cli initdb

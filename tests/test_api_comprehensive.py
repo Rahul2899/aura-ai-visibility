@@ -411,7 +411,7 @@ def test_homepage_loads():
     assert r.status_code == 200
 
 
-def test_homepage_has_aura_ai_branding():
+def test_homepage_has_map_the_model_branding():
     r = httpx.get(f"{FRONTEND}", timeout=10)
     assert "MapTheModel" in r.text, "Brand name 'MapTheModel' not found in homepage"
 
