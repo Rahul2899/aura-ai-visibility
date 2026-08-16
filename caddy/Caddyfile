@@ -1,7 +1,7 @@
 # MapTheModel reverse proxy with automatic HTTPS.
 #
 # {$SITE_ADDRESS} is set in docker-compose (env). Set it to the real domain
-# (e.g. aurai.duckdns.org) and Caddy auto-provisions a Let's Encrypt
+# (e.g. mapthemodel.duckdns.org) and Caddy auto-provisions a Let's Encrypt
 # cert and redirects http->https. For local dev leave it as :80 (plain HTTP,
 # no cert attempted).
 {$SITE_ADDRESS:-:80} {

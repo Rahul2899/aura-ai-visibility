@@ -46,7 +46,7 @@ services:
   # Caddy is the only public entry point. It reverse-proxies to web/app and
   # provisions Let's Encrypt TLS automatically when SITE_ADDRESS is a real domain.
   # Local dev: SITE_ADDRESS unset -> serves plain HTTP on :80 (no cert attempted).
-  # Production: set SITE_ADDRESS=aurai.duckdns.org in .env -> auto HTTPS + redirect.
+  # Production: set SITE_ADDRESS=mapthemodel.duckdns.org in .env -> auto HTTPS + redirect.
   caddy:
     build: ./caddy
     ports:

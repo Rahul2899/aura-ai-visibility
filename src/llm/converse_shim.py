@@ -60,7 +60,7 @@ class ConverseShim:
         if "temperature" in cfg:
             payload["temperature"] = cfg["temperature"]
 
-        headers = {"Authorization": f"Bearer {self.api_key}", "HTTP-Referer": "https://aurai.duckdns.org"}
+        headers = {"Authorization": f"Bearer {self.api_key}", "HTTP-Referer": "https://mapthemodel.duckdns.org"}
 
         last_err: Exception | None = None
         for attempt in range(max_retries):

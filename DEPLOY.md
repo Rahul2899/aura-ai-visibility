@@ -4,7 +4,7 @@ Manual, watched cutover. Once this succeeds, the GitHub Actions workflow
 (`.github/workflows/deploy.yml`) can automate it.
 
 **Infra:** GCP `e2-micro` (always-free tier), Ubuntu 22.04, Docker Compose.
-DuckDNS `aurai.duckdns.org` → static external IP. Caddy is the only public
+DuckDNS `mapthemodel.duckdns.org` → static external IP. Caddy is the only public
 entry (`:80` + `:443`); `app` and `db` are internal-only.
 
 **No cloud provider SDK.** The app needs Postgres (in-compose) and an OpenRouter
@@ -45,8 +45,8 @@ POSTGRES_DB=peec
 # DATABASE_URL is overridden by docker-compose to use the db service host.
 
 # HTTPS + CORS — set to the real domain so Caddy provisions a TLS cert
-SITE_ADDRESS=aurai.duckdns.org
-ALLOWED_ORIGINS=https://aurai.duckdns.org
+SITE_ADDRESS=mapthemodel.duckdns.org
+ALLOWED_ORIGINS=https://mapthemodel.duckdns.org
 NEXT_PUBLIC_API_URL=/api
 
 # Daily SPEND ceiling: audits x ~$0.06. 5/day ≈ $0.30/day, so a $3 balance lasts
@@ -117,7 +117,7 @@ open :80 to complete the ACME challenge for its Let's Encrypt cert.
 
 ## 5. Verify
 
-1. `https://aurai.duckdns.org` loads with a valid cert; `http://` redirects.
+1. `https://mapthemodel.duckdns.org` loads with a valid cert; `http://` redirects.
 2. Add a brand → audit completes, live feed streams, all 4 models respond, 0 errors.
 3. `https://…/?admin=<ADMIN_KEY>` → "ADMIN · unlimited"; creating a brand works.
 4. From your laptop: `curl http://<VM_IP>:8000/` and `:5432` → refused/timeout.

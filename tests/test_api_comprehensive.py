@@ -14,7 +14,7 @@ Then:
   pytest -m "not integration"                         # fast unit tests only
 
 Override the target with env vars when testing a deployed instance:
-  API_BASE=https://aurai.duckdns.org/api FRONTEND_BASE=https://aurai.duckdns.org pytest -m integration
+  API_BASE=https://mapthemodel.duckdns.org/api FRONTEND_BASE=https://mapthemodel.duckdns.org pytest -m integration
 """
 import os
 import pytest

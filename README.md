@@ -1,7 +1,7 @@
 # MapTheModel — Brand Visibility for the AI Search Era
 
 <p align="center">
-  <a href="https://aurai.duckdns.org"><img alt="Live demo" src="https://img.shields.io/badge/▶_Live_Demo-aurai.duckdns.org-1863dc?style=for-the-badge"></a>
+  <a href="https://mapthemodel.duckdns.org"><img alt="Live demo" src="https://img.shields.io/badge/▶_Live_Demo-mapthemodel.duckdns.org-1863dc?style=for-the-badge"></a>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-> **Try it live →** [aurai.duckdns.org](https://aurai.duckdns.org) — run a real audit on any brand in ~30 seconds, or explore the four pre-loaded demo brands.
+> **Try it live →** [mapthemodel.duckdns.org](https://mapthemodel.duckdns.org) — run a real audit on any brand in ~30 seconds, or explore the four pre-loaded demo brands.
 
 When buyers research what to buy, they increasingly ask an AI assistant instead of a search engine. *"What's the best applicant tracking system for a 200-person company?"* The models name a handful of brands. **If yours isn't one of them, you're invisible at the exact moment of decision — and unlike SEO, there's no results page to check.**
 
@@ -36,7 +36,7 @@ A worked example within a single category (recruiting software), which shows the
 
 That 0%→81% spread is the point: the score discriminates. A tool that scored every brand ~90% would be measuring nothing.
 
-The [live demo](https://aurai.duckdns.org) carries four brands across four different industries to show the audit works in any category — and the scores spread the same way:
+The [live demo](https://mapthemodel.duckdns.org) carries four brands across four different industries to show the audit works in any category — and the scores spread the same way:
 
 | Demo brand | Industry | Visibility |
 |---|---|---|
