@@ -1,6 +1,6 @@
-# Aura AI — Web frontend
+# MapTheModel — Web frontend
 
-Next.js (App Router) frontend for Aura AI, the LLM brand-visibility audit platform.
+Next.js (App Router) frontend for MapTheModel, the AI brand-visibility measurement platform.
 It renders the dashboard, the audit live-scan view, brand comparison, and shareable
 report pages, talking to the FastAPI backend.
 

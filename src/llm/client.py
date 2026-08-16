@@ -107,7 +107,7 @@ class OpenRouterClient:
                        max_tokens: int | None = None, temperature: float | None = None) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": "https://mapthemodel.duckdns.org",
+            "HTTP-Referer": "https://aurai.duckdns.org",
         }
         payload: dict = {"model": model, "messages": messages}
         if model in REASONING_OPTIONAL:

@@ -72,7 +72,7 @@ This separation is what makes the score honest.
 
 ## From "what" to "how to fix it"
 
-A score with no action is a vanity metric. So beyond measuring, Aura tells you **why** you lost and **what to do** — grounded in real evidence, not generic advice.
+A score with no action is a vanity metric. So beyond measuring, MapTheModel tells you **why** you lost and **what to do** — grounded in real evidence, not generic advice.
 
 For every question where a brand was (mostly) invisible, the audit captures the competitors the models recommended instead and the verbatim answers explaining *why*. A focused model pass then reads only that real evidence and surfaces the pattern + the concrete fix — bound to cite nothing outside the captured answers.
 

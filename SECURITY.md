@@ -8,7 +8,7 @@ branch (matching the live deployment) receives security updates.
 ## Reporting a Vulnerability
 
 If you find a security issue, please report it privately rather than opening a
-public issue. Open a [GitHub security advisory](https://github.com/Rahul2899/aura-ai-visibility/security/advisories/new)
+public issue. Open a [GitHub security advisory](https://github.com/Rahul2899/map-the-model/security/advisories/new)
 or email the maintainer. You can expect an initial response within a few days.
 
 A few deliberate protections are in place that testers may find relevant: SSRF

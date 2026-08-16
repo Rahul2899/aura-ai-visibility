@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Aura AI — deploy/update on the VM. Run this ON the server (it does not SSH
+# MapTheModel — deploy/update on the VM. Run this ON the server (it does not SSH
 # for you). Idempotent: pulls latest master, rebuilds, migrates, smoke-tests.
 #
 #   gcloud compute ssh aura --zone=us-central1-a
-#   cd ~/aura-ai-visibility && ./deploy.sh
+#   cd ~/aura-ai-visibility && ./deploy.sh  # existing VM checkout path
 #
 # Prereqs on the box (one-time): docker + docker compose installed, repo cloned,
 # and a .env present with rotated secrets + SITE_ADDRESS set (see DEPLOY.md).

@@ -1,10 +1,10 @@
-# Aura AI — Production Deploy Runbook (GCP Compute Engine)
+# MapTheModel — Production Deploy Runbook (GCP Compute Engine)
 
 Manual, watched cutover. Once this succeeds, the GitHub Actions workflow
 (`.github/workflows/deploy.yml`) can automate it.
 
 **Infra:** GCP `e2-micro` (always-free tier), Ubuntu 22.04, Docker Compose.
-DuckDNS `your-app.duckdns.org` → static external IP. Caddy is the only public
+DuckDNS `aurai.duckdns.org` → static external IP. Caddy is the only public
 entry (`:80` + `:443`); `app` and `db` are internal-only.
 
 **No cloud provider SDK.** The app needs Postgres (in-compose) and an OpenRouter
@@ -45,8 +45,8 @@ POSTGRES_DB=peec
 # DATABASE_URL is overridden by docker-compose to use the db service host.
 
 # HTTPS + CORS — set to the real domain so Caddy provisions a TLS cert
-SITE_ADDRESS=your-app.duckdns.org
-ALLOWED_ORIGINS=https://your-app.duckdns.org
+SITE_ADDRESS=aurai.duckdns.org
+ALLOWED_ORIGINS=https://aurai.duckdns.org
 NEXT_PUBLIC_API_URL=/api
 
 # Daily SPEND ceiling: audits x ~$0.06. 5/day ≈ $0.30/day, so a $3 balance lasts
@@ -106,8 +106,8 @@ sudo usermod -aG docker $USER && exec su -l $USER
 ## 4. First deploy
 
 ```bash
-git clone https://github.com/Rahul2899/aura-ai-visibility.git
-cd aura-ai-visibility
+git clone https://github.com/Rahul2899/map-the-model.git
+cd map-the-model
 # create/verify .env per section 1
 ./deploy.sh
 ```
@@ -117,7 +117,7 @@ open :80 to complete the ACME challenge for its Let's Encrypt cert.
 
 ## 5. Verify
 
-1. `https://your-app.duckdns.org` loads with a valid cert; `http://` redirects.
+1. `https://aurai.duckdns.org` loads with a valid cert; `http://` redirects.
 2. Add a brand → audit completes, live feed streams, all 4 models respond, 0 errors.
 3. `https://…/?admin=<ADMIN_KEY>` → "ADMIN · unlimited"; creating a brand works.
 4. From your laptop: `curl http://<VM_IP>:8000/` and `:5432` → refused/timeout.

@@ -14,7 +14,7 @@ Then:
   pytest -m "not integration"                         # fast unit tests only
 
 Override the target with env vars when testing a deployed instance:
-  API_BASE=http://your-ec2-ip/api FRONTEND_BASE=http://your-ec2-ip pytest -m integration
+  API_BASE=https://aurai.duckdns.org/api FRONTEND_BASE=https://aurai.duckdns.org pytest -m integration
 """
 import os
 import pytest
@@ -413,7 +413,7 @@ def test_homepage_loads():
 
 def test_homepage_has_aura_ai_branding():
     r = httpx.get(f"{FRONTEND}", timeout=10)
-    assert "Aura AI" in r.text, "Brand name 'Aura AI' not found in homepage"
+    assert "MapTheModel" in r.text, "Brand name 'MapTheModel' not found in homepage"
 
 
 def test_homepage_no_peecclone_leak():
