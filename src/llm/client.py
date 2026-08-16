@@ -52,6 +52,25 @@ REASONING_OPTIONAL: frozenset[str] = frozenset({
 # calls size their own budgets, some of which legitimately need more.
 PROBE_MAX_TOKENS = 700
 
+# Models that reason unavoidably: hidden reasoning bills against the SAME max_tokens
+# budget as the visible answer, and these endpoints reject reasoning.enabled=false.
+# A flat 700 cap was spent entirely on Gemini's reasoning — it returned ~111-character
+# stubs where the other three averaged 1300-1650, scoring 0% visibility. That was a
+# measurement artifact created by the cap, not a real result. Headroom is added ON TOP
+# of the answer budget, the same fix ConverseShim uses for the orchestration calls.
+# Only list models observed to need it; unused budget costs nothing, but a wrong entry
+# here hides a genuine truncation.
+REASONING_MANDATORY: frozenset[str] = frozenset({
+    "google/gemini-3.7-flash",
+})
+REASONING_HEADROOM = 800
+
+
+def probe_token_budget(model: str) -> int:
+    """max_tokens for one probe: the answer budget, plus room to think for models that
+    can't be told not to. Without the headroom the reasoning eats the answer."""
+    return PROBE_MAX_TOKENS + (REASONING_HEADROOM if model in REASONING_MANDATORY else 0)
+
 
 class OutOfCreditsError(RuntimeError):
     """OpenRouter returned 402 — the account balance is spent. Distinct from a transient
@@ -65,6 +84,10 @@ class OpenRouterClient:
             raise RuntimeError("OPENROUTER_API_KEY is not set. Add it to .env (get a key at https://openrouter.ai/keys).")
         self.api_key = key
         self.http = httpx.AsyncClient(timeout=90)
+        # Running totals for every call this client made. Lets a caller report usage for
+        # helper calls (extraction) it doesn't get a usage dict back from, without
+        # changing those helpers' return types.
+        self.usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "latency_ms": 0}
 
     async def complete(self, model: str, messages: list[dict], max_retries: int = 3,
                        max_tokens: int | None = None, temperature: float | None = None) -> dict:
@@ -108,6 +131,10 @@ class OpenRouterClient:
                     tokens_in=usage.get("prompt_tokens"),
                     tokens_out=usage.get("completion_tokens"),
                 )
+                self.usage["calls"] += 1
+                self.usage["tokens_in"] += usage.get("prompt_tokens") or 0
+                self.usage["tokens_out"] += usage.get("completion_tokens") or 0
+                self.usage["latency_ms"] += latency_ms
                 return {
                     "text": data["choices"][0]["message"]["content"],
                     "latency_ms": latency_ms,

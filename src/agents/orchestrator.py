@@ -19,7 +19,7 @@ from src.llm.client import (
     DEFAULT_MODELS,
     ORCHESTRATOR_MODEL,
     QUESTION_MODEL,
-    PROBE_MAX_TOKENS,
+    probe_token_budget,
 )
 from src.llm.converse_shim import ConverseShim
 from src.llm.extractor import extract_mentions
@@ -449,14 +449,18 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
         result = await client.complete(
             model=model,
             messages=[{"role": "user", "content": prompt_text}],
-            max_tokens=PROBE_MAX_TOKENS,
+            max_tokens=probe_token_budget(model),
         )
         # Extraction runs on the cheap orchestration model, NOT on the model being
         # probed. Pulling brand names out of text needs no vendor diversity, so paying
         # premium-model rates for it doubled the cost of every probe. Using one model
         # for all extractions also makes the panel comparable: each answer is graded by
         # the same reader instead of every model grading its own.
+        before = dict(client.usage)
         extraction = await extract_mentions(client, ORCHESTRATOR_MODEL, result["text"])
+        # Usage delta across extract_mentions, which may retry internally. Captured from
+        # the client's running totals so the extractor's return type stays unchanged.
+        extract_usage = {k: client.usage[k] - before[k] for k in ("tokens_in", "tokens_out", "latency_ms")}
         target_mention = next((m for m in extraction.mentions if _brand_matches(target_brand, m.brand_name)), None)
         mentioned = target_mention is not None
         # Capture the COMPETITORS the model named (everyone who isn't the target). This is
@@ -478,6 +482,9 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             "response_text": result["text"],
             "brand_position": target_mention.position if target_mention else None,
             "competitors": competitors,
+            "extract_tokens_in": extract_usage["tokens_in"],
+            "extract_tokens_out": extract_usage["tokens_out"],
+            "extract_latency_ms": extract_usage["latency_ms"],
         }
     except OutOfCreditsError:
         # Deliberately NOT swallowed like other errors. A failed probe is dropped from
@@ -521,11 +528,20 @@ def _persist_probe(session: AsyncSession, brand_id: int, prompt_text: str, resul
     for r in results:
         tokens_in = r.get("tokens_in") or 0
         tokens_out = r.get("tokens_out") or 0
-        # The panel runs OpenRouter `:free` models, so spend is genuinely 0. Tokens are
-        # still recorded above — if a paid model is ever added, price it here per-model.
-        cost = 0.0
+        # cost_usd stays NULL: the panel is paid now (it was `:free` when this was
+        # written), and per-model prices change often enough that a hardcoded table here
+        # would quietly go stale. openrouter.ai/activity is the billing source of truth;
+        # these rows are for call/token counts.
         session.add(ApiCall(model=r["model"], provider=r["provider"], latency_ms=r["latency_ms"],
-                            tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost))
+                            tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=None))
+        # Extraction runs a SECOND call per probe. It was never recorded, so api_calls
+        # showed only half the traffic — which made the table useless for answering
+        # "what did this audit cost?". Record it under its own model name.
+        if r.get("extract_tokens_in") is not None:
+            session.add(ApiCall(model=f"{ORCHESTRATOR_MODEL} (extract)", provider=r["provider"],
+                                latency_ms=r.get("extract_latency_ms") or 0,
+                                tokens_in=r.get("extract_tokens_in") or 0,
+                                tokens_out=r.get("extract_tokens_out") or 0, cost_usd=None))
         if not r["failed"]:
             model_breakdown[r["model"]] = r["mentioned"]
 
