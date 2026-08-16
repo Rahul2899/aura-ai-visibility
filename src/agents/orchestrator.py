@@ -13,7 +13,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Brand, Insight, ProbePerformance, ApiCall, Prompt, Run, Mention, SentimentEnum
-from src.llm.client import OpenRouterClient, DEFAULT_MODELS, ORCHESTRATOR_MODEL, QUESTION_MODEL
+from src.llm.client import (
+    OpenRouterClient,
+    OutOfCreditsError,
+    DEFAULT_MODELS,
+    ORCHESTRATOR_MODEL,
+    QUESTION_MODEL,
+    PROBE_MAX_TOKENS,
+)
 from src.llm.bedrock_client import ConverseShim
 from src.llm.extractor import extract_mentions
 
@@ -412,8 +419,17 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
     Uses the structured extractor — not a naive string match — to prevent hallucination false positives."""
     client = OpenRouterClient()
     try:
-        result = await client.complete(model=model, messages=[{"role": "user", "content": prompt_text}])
-        extraction = await extract_mentions(client, model, result["text"])
+        result = await client.complete(
+            model=model,
+            messages=[{"role": "user", "content": prompt_text}],
+            max_tokens=PROBE_MAX_TOKENS,
+        )
+        # Extraction runs on the cheap orchestration model, NOT on the model being
+        # probed. Pulling brand names out of text needs no vendor diversity, so paying
+        # premium-model rates for it doubled the cost of every probe. Using one model
+        # for all extractions also makes the panel comparable: each answer is graded by
+        # the same reader instead of every model grading its own.
+        extraction = await extract_mentions(client, ORCHESTRATOR_MODEL, result["text"])
         target_mention = next((m for m in extraction.mentions if _brand_matches(target_brand, m.brand_name)), None)
         mentioned = target_mention is not None
         # Capture the COMPETITORS the model named (everyone who isn't the target). This is
@@ -436,6 +452,12 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
             "brand_position": target_mention.position if target_mention else None,
             "competitors": competitors,
         }
+    except OutOfCreditsError:
+        # Deliberately NOT swallowed like other errors. A failed probe is dropped from
+        # the score, so absorbing this would publish a visibility % computed from
+        # however many probes ran before the money ran out — a plausible-looking wrong
+        # number. Propagate and let the whole audit stop instead.
+        raise
     except Exception as e:
         log.warning("probe_model_error", model=model, error=str(e))
         return {"model": model, "provider": provider, "mentioned": False, "failed": True,

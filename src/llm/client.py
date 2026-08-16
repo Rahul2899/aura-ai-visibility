@@ -45,6 +45,16 @@ REASONING_OPTIONAL: frozenset[str] = frozenset({
     "x-ai/grok-4.3",
 })
 
+# A probe answer is a buyer-style recommendation list; past ~700 tokens the model is
+# padding, and we pay for every token of it. Applied to probes only — the orchestration
+# calls size their own budgets, some of which legitimately need more.
+PROBE_MAX_TOKENS = 700
+
+
+class OutOfCreditsError(RuntimeError):
+    """OpenRouter returned 402 — the account balance is spent. Distinct from a transient
+    HTTP failure so callers can tell the user the budget ran out, not that the app broke."""
+
 
 class OpenRouterClient:
     def __init__(self):
@@ -105,6 +115,15 @@ class OpenRouterClient:
                 }
 
             except httpx.HTTPStatusError as e:
+                # 402 means the account balance is spent. Retrying can't fix that, and
+                # backing off 3x per call turns a whole audit into a slow hang before it
+                # fails. Raise a distinct type so the API layer can report "out of
+                # credits" rather than leaking a raw HTTP error to the user.
+                if e.response.status_code == 402:
+                    log.warning("out_of_credits", model=model)
+                    raise OutOfCreditsError(
+                        "OpenRouter account is out of credits. Top up at https://openrouter.ai/credits."
+                    ) from e
                 if attempt == max_retries - 1:
                     raise
                 wait = 2 ** attempt

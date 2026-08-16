@@ -99,6 +99,13 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
           localStorage.removeItem(jobKey);
           started.current = false;
           setLog(prev => [...prev, "✗ Couldn't confirm this brand. Add your website domain so we audit the right company."]);
+        } else if (j.status === "out_of_credits") {
+          // Shared demo budget is spent. Not a fault — say so, so it doesn't read as
+          // a broken app.
+          if (pollRef.current) clearInterval(pollRef.current);
+          localStorage.removeItem(jobKey);
+          started.current = false;
+          setLog(prev => [...prev, "• Demo API credits used up for now — the audit didn't run."]);
         } else if (j.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
           localStorage.removeItem(jobKey);
@@ -429,6 +436,16 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
           {/* Always surface WHY an audit failed — the server sends a specific reason
               (limit reached, example brand is read-only, already running, busy). Show
               it plainly instead of leaving the user staring at a bare "Failed". */}
+          {/* Budget exhaustion is not a failure — amber, and worded so a visitor knows
+              the platform works and only the shared demo credit ran out. */}
+          {job?.status === "out_of_credits" && (
+            <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+              <strong>Demo credits used up.</strong> The platform is running normally — the
+              shared API budget for live audits is spent for now. Existing reports below are
+              unaffected. Check back tomorrow, or get in touch for a walkthrough with fresh credits.
+            </p>
+          )}
+
           {failed && job?.error && (
             <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 leading-relaxed">
               {job.error.includes("busy")

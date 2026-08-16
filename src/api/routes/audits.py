@@ -12,6 +12,7 @@ from src.api.ratelimit import client_ip
 from src.api.semaphore import get_audit_semaphore
 from src.db import SessionLocal
 from src.agents.orchestrator import orchestrate, preview_audit, BrandNotConfirmed
+from src.llm.client import OutOfCreditsError
 from src.models import AuditLimit, Brand
 
 log = structlog.get_logger()
@@ -91,6 +92,11 @@ async def _run_audit_job(job_id: str, brand_id: int, custom_questions: list[str]
         # Couldn't confidently identify which company the user means. Distinct status
         # so the UI can ask for a domain; refund the slot since they got no result.
         _jobs[job_id]["status"] = "unconfirmed"
+        await _refund_audit_slot(rate_key)
+    except OutOfCreditsError:
+        # The shared API budget is spent. Its own status so the UI can say the demo ran
+        # out of credits rather than showing a raw 402, which reads as a broken app.
+        _jobs[job_id]["status"] = "out_of_credits"
         await _refund_audit_slot(rate_key)
     except Exception as e:
         _jobs[job_id].update({"status": "failed", "error": str(e)})
