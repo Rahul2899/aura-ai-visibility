@@ -339,7 +339,11 @@ async def _tavily_candidates(llm, name: str, industry: str | None) -> list[dict]
     tavily_key = os.environ.get("TAVILY_API_KEY")
     if not tavily_key:
         return []
-    query = f"{name} {industry or ''} company".strip()
+    # "<name> company" pulls corporate, investor and B2B pages: for Kaufland it returned
+    # only the marketplace arms and never kaufland.de, so the classifier had no main site
+    # to rank first. Asking for the official site the brand's own customers use puts the
+    # consumer-facing domain in the results.
+    query = f"{name} {industry or ''} official website".strip()
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             r = await client.post(
