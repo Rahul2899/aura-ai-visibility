@@ -210,31 +210,22 @@ def _registrable_domain(url_or_host: str) -> str:
 _NON_COMPANY_DOMAINS: frozenset[str] = frozenset({
     "linkedin.com", "crunchbase.com", "wikipedia.org", "facebook.com", "instagram.com",
     "twitter.com", "x.com", "youtube.com", "tiktok.com", "pinterest.com", "reddit.com",
-    "bloomberg.com", "glassdoor.com", "indeed.com", "yelp.com", "tripadvisor.com",
-    "trustpilot.com", "amazon.com", "ebay.com", "medium.com", "github.com",
-    "zoominfo.com", "dnb.com", "pitchbook.com", "owler.com", "companieshouse.gov.uk",
-    "northdata.com", "kununu.com", "xing.com", "yellowpages.com", "bbb.org",
-    # News and market-data sites. finance.yahoo.com is why the name check below exists:
-    # an article about PEEC AI became a candidate and the audit read Yahoo Finance's
-    # homepage, inferring the category "finance".
-    "yahoo.com", "google.com", "bing.com", "techcrunch.com", "forbes.com",
-    "reuters.com", "cnbc.com", "businesswire.com", "prnewswire.com", "sifted.eu",
-    "wsj.com", "ft.com", "theverge.com", "wired.com", "producthunt.com",
-    "g2.com", "capterra.com", "getapp.com", "softwareadvice.com", "gartner.com",
+    "glassdoor.com", "indeed.com", "yelp.com", "tripadvisor.com", "trustpilot.com",
+    "medium.com", "github.com", "zoominfo.com", "dnb.com", "pitchbook.com", "owler.com",
+    "companieshouse.gov.uk", "northdata.com", "kununu.com", "xing.com",
+    "yellowpages.com", "bbb.org", "g2.com", "capterra.com", "getapp.com",
 })
 
 
-def _is_company_site(domain: str, brand_name: str | None = None) -> bool:
-    """True if the domain could plausibly BE a company rather than a page about one.
+def _is_company_site(domain: str) -> bool:
+    """False for domains that are structurally never a company's own site — social
+    networks, encyclopedias, job boards, review directories.
 
-    Two rules, because a deny-list alone can't work. It only catches sites someone
-    thought to list: 'finance.yahoo.com' wasn't on it, so a Yahoo Finance article about
-    PEEC AI became a selectable candidate and auditing it inferred the category
-    "finance". Any news or data site not yet listed fails the same way.
-
-    So the deny-list handles the known offenders, and when we know the brand name, a
-    site whose domain doesn't contain it is treated as writing ABOUT the company rather
-    than being it. That generalises to aggregators nobody has listed."""
+    This is deliberately a SHORT list of certainties, not an attempt to catch every
+    site that writes about companies. That attempt failed twice: finance.yahoo.com and
+    marketermilk.com were both accepted because no hand-maintained list can enumerate
+    the web. Judging whether a page is the brand's own site is _classify_candidates'
+    job, which reads the content. This just skips the obvious cases cheaply first."""
     if not domain:
         return False
     parts = domain.split(".")
@@ -242,57 +233,87 @@ def _is_company_site(domain: str, brand_name: str | None = None) -> bool:
     for i in range(len(parts) - 1):
         if ".".join(parts[i:]) in _NON_COMPANY_DOMAINS:
             return False
-    if brand_name:
-        # Compare against the domain with separators dropped, so "PEEC AI" matches
-        # peecai.com and "Map The Model" matches mapthemodel.com. Diacritic-folded to
-        # match _brand_matches. A 1-2 char name collides with too much to be a signal.
-        name_key = re.sub(r"[^a-z0-9]", "", _fold(brand_name))
-        host_key = re.sub(r"[^a-z0-9]", "", _fold(domain))
-        if len(name_key) > 2 and name_key not in host_key:
-            return False
     return True
 
 
-def _looks_like_a_homepage(url: str) -> bool:
-    """True when the URL is a site root rather than an article on it. A company's own
-    site surfaces as 'https://peec.ai/'; a write-up about it lives at a path like
-    '/blog/peec-ai'. Used only for the fallback candidates, where the domain doesn't
-    carry the brand name and depth is the remaining signal — marketermilk.com/blog/peec-ai
-    was accepted as PeecAI's site and made the category "marketing news platform"."""
-    path = re.sub(r"^[a-z][a-z0-9+.\-]*://", "", (url or "").strip().lower())
-    path = path.split("?")[0].split("#")[0]
-    segments = [s for s in path.split("/")[1:] if s]
-    return len(segments) == 0
+CANDIDATE_CLASSIFY_PROMPT = """You are deciding which search results are a company's OWN website, and which are pages that merely WRITE ABOUT it.
+
+You are given a brand name and a numbered list of search results (domain, page title, page snippet).
+
+For each result, decide: is this the official website OF the brand itself, or a third party writing about it (news article, funding announcement, blog post, review site, directory listing, social profile, encyclopedia entry, job board)?
+
+Judge by the CONTENT, not the domain. A page that reports on the company in the third person ("X raised a round", "our review of X", "X vs Y compared") is a third party even if the brand name appears in the title. A page that speaks AS the company ("we help teams...", product and pricing copy, a signup call to action) is the official site.
+
+If the snippet is too thin to tell, answer false — a wrong guess sends the audit to the wrong company.
+
+Return ONLY JSON: {"official": [<indices of official sites>]}. Use the numbers given. No prose, no markdown fences."""
 
 
-def group_candidates(results: list[dict], brand_name: str | None = None) -> list[dict]:
+async def _classify_candidates(llm, brand_name: str, results: list[dict]) -> list[dict]:
+    """Keep only the search results whose CONTENT reads as the brand's own site.
+
+    This replaces a stack of string heuristics (a hand-maintained deny-list, brand-name
+    matching against the domain, URL depth). Each of those broke on the next real case:
+    finance.yahoo.com and marketermilk.com/blog/peec-ai were both accepted as company
+    sites, and auditing them inferred the categories "finance" and "marketing news
+    platform". A domain simply cannot tell you what a page is; the snippet can.
+
+    One call for the whole list, on the cheap orchestration model. On any failure we
+    return the input unfiltered — a classifier outage must not leave a brand with no
+    candidates at all."""
+    if not results:
+        return []
+    listing = "\n".join(
+        f'{i}. domain={r.get("domain", "")} | title={r.get("title", "")} | snippet={(r.get("description") or "")[:200]}'
+        for i, r in enumerate(results)
+    )
+    prompt = f'Brand name: "{brand_name}"\n\nSearch results:\n{listing}'
+    try:
+        resp = await asyncio.to_thread(
+            lambda: llm.converse(
+                modelId=ORCHESTRATOR_MODEL,
+                system=[{"text": CANDIDATE_CLASSIFY_PROMPT}],
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 100, "temperature": 0},
+            )
+        )
+        raw = resp["output"]["message"]["content"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].removeprefix("json").strip()
+        keep = {int(i) for i in json.loads(raw).get("official", [])}
+        official = [r for i, r in enumerate(results) if i in keep]
+        log.info("candidates_classified", brand=brand_name,
+                 kept=len(official), dropped=len(results) - len(official))
+        # Everything looked like a third party. That's a real answer (the brand may have
+        # no site in the top results), but returning nothing would strand the user, so
+        # hand back the full list and let the entity gate downstream catch it.
+        return official or results
+    except Exception as e:
+        log.warning("candidate_classify_failed", brand=brand_name, error=str(e))
+        return results
+
+
+def group_candidates(results: list[dict]) -> list[dict]:
     """Group raw search results by registrable domain into distinct entity candidates.
     Each result is {url, title, content}. Returns one candidate per domain:
       {domain, title, description}. Deterministic — no LLM. Used to decide if a
     name-only search returned ONE company or several same-named ones (ambiguous)."""
     by_domain: dict[str, dict] = {}
-    fallback: dict[str, dict] = {}
     for r in results:
         dom = _registrable_domain(r.get("url", ""))
-        if not dom or dom in by_domain or dom in fallback:
+        if not dom or dom in by_domain:
             continue  # first result per domain wins (search is ranked)
-        entry = {
+        if not _is_company_site(dom):
+            continue  # social/encyclopedia/directory: never a company's own domain
+        by_domain[dom] = {
             "domain": dom,
             "title": (r.get("title") or dom).strip()[:80],
             "description": (r.get("content") or "").strip()[:160],
         }
-        if _is_company_site(dom, brand_name):
-            by_domain[dom] = entry
-        elif _is_company_site(dom) and _looks_like_a_homepage(r.get("url", "")):
-            # Passes the deny-list but its domain doesn't carry the brand name. Plenty
-            # of real companies are like that (a rebrand, an acronym, a parent-company
-            # domain), so keep it as a fallback rather than dropping it — but only show
-            # it when the name-matching pass found nothing at all.
-            fallback[dom] = entry
-    return list(by_domain.values()) or list(fallback.values())
+    return list(by_domain.values())
 
 
-async def _tavily_candidates(name: str, industry: str | None) -> list[dict]:
+async def _tavily_candidates(llm, name: str, industry: str | None) -> list[dict]:
     """Name-only search that PRESERVES individual results (unlike _tavily_search, which
     blends them into one string). Used for disambiguation: returns distinct same-name
     entity candidates so the user can pick the right one. Empty list = search unavailable."""
@@ -308,7 +329,11 @@ async def _tavily_candidates(name: str, industry: str | None) -> list[dict]:
                       "max_results": 6},
             )
         if r.status_code == 200:
-            return group_candidates(r.json().get("results", []), brand_name=name)
+            grouped = group_candidates(r.json().get("results", []))
+            # Content check: which of these are the brand's own site rather than
+            # coverage of it. Needs the LLM, so it can't live in group_candidates
+            # (which stays pure/deterministic and is unit-tested on its own).
+            return await _classify_candidates(llm, name, grouped)
     except Exception as e:
         log.warning("candidate_search_failed", brand=name, error=str(e))
     return []
@@ -1027,11 +1052,21 @@ async def preview_audit(session: AsyncSession, brand_id: int, domain_override: s
     # of us silently auditing whichever ranked first. Only when there's no domain to
     # trust — a given domain is authoritative and skips this entirely.
     if source != "homepage" and not brand.domain:
-        candidates = await _tavily_candidates(name, brand.industry)
+        candidates = await _tavily_candidates(llm, name, brand.industry)
         if len(candidates) >= 2:
             return {"found": False, "ambiguous": True, "candidates": candidates,
                     "category": "", "summary": "", "source": source,
                     "detected_region": None}
+        # Exactly one result read as the brand's own site. Adopt it instead of asking:
+        # the context gathered above came from a blended name search that may describe
+        # someone else, while this domain's homepage is authoritative. Re-fetching makes
+        # the category come from the company's own words rather than coverage of it.
+        if len(candidates) == 1:
+            brand.domain = candidates[0]["domain"][:255]
+            await session.commit()
+            context = await _get_brand_context_tool(session, brand_id)
+            source = context.pop("_source", "none")
+            web_ctx = context.get("web_context", "")
 
     # Same entity gate as orchestrate: a name-only search may be a different same-named
     # company, so verify before we claim we found the right one.

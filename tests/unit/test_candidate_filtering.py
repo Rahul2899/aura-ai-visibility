@@ -1,8 +1,12 @@
-"""A company-name search ranks LinkedIn/Crunchbase/Wikipedia above the company's own
-site. Each of those used to become a disambiguation candidate carrying the ARTICLE's
-title, so the picker showed the right company name against an aggregator's domain —
-selecting it set brand.domain to linkedin.com and audited LinkedIn's homepage. These
-pin the filter, and equally that it doesn't swallow real same-name companies.
+"""A company-name search returns the company's own site mixed with pages that write
+about it. Picking a write-up sets the brand's domain to that publisher and the audit
+reads the wrong company: finance.yahoo.com made the inferred category "finance", and
+marketermilk.com/blog/peec-ai made it "marketing news platform".
+
+Deciding which is which is _classify_candidates' job — it reads the page content, so it
+generalises to publishers nobody listed. group_candidates stays deterministic: it groups
+by domain and drops only the handful of hosts that are structurally never a company's
+own site. These tests cover that deterministic half.
 """
 import os
 
@@ -15,89 +19,57 @@ def _result(url, title):
     return {"url": url, "title": title, "content": "..."}
 
 
-def test_aggregators_are_not_offered_as_candidates():
+def test_groups_one_candidate_per_domain():
+    """Search returns several pages from the same site; they are one entity, not many."""
     results = [
-        _result("https://www.linkedin.com/company/acme-gmbh", "Acme GmbH | LinkedIn"),
-        _result("https://acme.de/", "Acme GmbH – Startseite"),
-        _result("https://www.crunchbase.com/organization/acme", "Acme GmbH - Crunchbase"),
-        _result("https://en.wikipedia.org/wiki/Acme", "Acme GmbH - Wikipedia"),
+        _result("https://acme.de/", "Acme GmbH"),
+        _result("https://acme.de/about", "About Acme"),
+        _result("https://acme.co/", "Acme Inc"),
+    ]
+    assert [c["domain"] for c in group_candidates(results)] == ["acme.de", "acme.co"]
+
+
+def test_structural_non_companies_are_dropped():
+    """Social networks, encyclopedias and job boards are never a company's own domain,
+    so they're skipped before spending a classifier call on them."""
+    results = [
+        _result("https://www.linkedin.com/company/acme", "Acme | LinkedIn"),
+        _result("https://en.wikipedia.org/wiki/Acme", "Acme - Wikipedia"),
+        _result("https://acme.de/", "Acme GmbH"),
+    ]
+    assert [c["domain"] for c in group_candidates(results)] == ["acme.de"]
+
+
+def test_publishers_are_left_for_the_content_check():
+    """A news site CAN be the subject of an audit (Forbes is a real company), so the
+    deny-list must not judge it. Whether a given page is the brand's own site is decided
+    from content downstream, not from the domain here."""
+    results = [
+        _result("https://finance.yahoo.com/news/peec-ai-raises", "PEEC AI raises"),
+        _result("https://peec.ai/", "PEEC AI"),
     ]
     domains = [c["domain"] for c in group_candidates(results)]
-    assert domains == ["acme.de"]
+    assert "peec.ai" in domains
+    assert "finance.yahoo.com" in domains
 
 
-def test_single_company_across_many_pages_is_not_ambiguous():
-    """Ambiguity is `len(candidates) >= 2`. Aggregator rows inflated that count and
-    prompted 'which one do you mean?' when the search found exactly one company."""
+def test_genuine_namesakes_both_survive():
+    """Two real companies sharing a name are what the picker exists for."""
     results = [
-        _result("https://www.linkedin.com/company/acme", "Acme GmbH | LinkedIn"),
-        _result("https://acme.de/", "Acme GmbH"),
-        _result("https://de.linkedin.com/in/founder", "Acme founder"),
-    ]
-    assert len(group_candidates(results)) < 2
-
-
-def test_genuine_namesakes_still_prompt():
-    """The filter must not over-reach: two real companies sharing a name are exactly
-    what the picker exists for."""
-    results = [
-        _result("https://www.linkedin.com/company/lever", "Lever | LinkedIn"),
         _result("https://www.lever.co/", "Lever - Recruiting Software"),
         _result("https://lever.de/", "Lever GmbH - Maschinenbau"),
     ]
-    domains = [c["domain"] for c in group_candidates(results)]
-    assert domains == ["lever.co", "lever.de"]
+    assert [c["domain"] for c in group_candidates(results)] == ["lever.co", "lever.de"]
 
 
-def test_subdomains_of_aggregators_are_caught():
+def test_subdomains_of_listed_hosts_are_caught():
     """_registrable_domain keeps subdomains, so the check walks parent suffixes."""
     assert not _is_company_site("en.wikipedia.org")
     assert not _is_company_site("de.linkedin.com")
 
 
-def test_news_site_about_the_brand_is_not_the_brand():
-    """The real regression: a Yahoo Finance article about PEEC AI passed the deny-list
-    (yahoo.com wasn't on it), was picked from the candidate list, and the audit scraped
-    finance.yahoo.com — so the inferred category came back "finance"."""
-    results = [
-        _result("https://finance.yahoo.com/news/peec-ai-raises", "PEEC AI raises funding"),
-        _result("https://peec.ai/", "PEEC AI"),
-        _result("https://techcrunch.com/2026/peec-ai", "PEEC AI launches"),
-    ]
-    domains = [c["domain"] for c in group_candidates(results, brand_name="peecai")]
-    assert domains == ["peec.ai"]
-
-
-def test_name_match_generalises_beyond_the_deny_list():
-    """A deny-list only catches sites someone listed. When the brand name is known, a
-    domain that doesn't carry it is treated as writing about the company."""
-    assert not _is_company_site("someblog.example", brand_name="peecai")
-    assert _is_company_site("peec.ai", brand_name="peecai")
-
-
-def test_fallback_does_not_readmit_an_article():
-    """The fallback (added so brands with mismatched domains don't vanish) re-admitted
-    exactly what the name check had just rejected: with only marketermilk.com/blog/peec-ai
-    in the results it became the single candidate, was selected because it was the only
-    option, and the audit inferred the category "marketing news platform". An article
-    lives at a path; a company's own site is the root."""
-    results = [_result("https://www.marketermilk.com/blog/peec-ai", "Peec AI Review")]
-    assert group_candidates(results, brand_name="PeecAI") == []
-
-
-def test_unlisted_site_survives_when_nothing_matches_the_name():
-    """Real companies do have domains without their name (rebrands, acronyms, parent
-    companies). Those must not vanish — they're kept as a fallback when the name-matching
-    pass finds nothing."""
-    results = [
-        _result("https://parentcorp.com/", "Obscure Co - a ParentCorp brand"),
-    ]
-    domains = [c["domain"] for c in group_candidates(results, brand_name="ObscureCo")]
-    assert domains == ["parentcorp.com"]
-
-
 def test_company_subdomains_are_kept():
-    """Guard against matching too broadly — a brand's own subdomain is still the brand,
-    and a multi-part ccTLD must not be mistaken for an aggregator."""
+    """A brand's own subdomain is still the brand, and a multi-part ccTLD is not a
+    listed host."""
     assert _is_company_site("shop.mybrand.com")
     assert _is_company_site("mybrand.co.uk")
