@@ -24,7 +24,7 @@ class AuditRequest(BaseModel):
 
     # Defense-in-depth caps on attacker-controlled input that flows into LLM prompts.
     # Bounds the payload (no huge-body parsing) and the per-question length (a long
-    # prompt-injection string can't bloat the prompt or run up Bedrock cost). The route
+    # prompt-injection string can't bloat the prompt or run up inference cost). The route
     # still strips + slices to 5; these reject abusive payloads at the schema boundary.
     @field_validator("custom_questions")
     @classmethod
@@ -40,7 +40,7 @@ class AuditRequest(BaseModel):
 
 router = APIRouter(prefix="/audit")
 
-# Platform-wide safety cap on total audits per UTC day. Protects the AWS/Bedrock bill
+# Platform-wide safety cap on total audits per UTC day. Protects the OpenRouter balance
 # regardless of how many sessions/browsers/incognito tabs one person opens — the
 # per-session limit is good-faith friction; THIS is the hard ceiling on spend.
 # Override via env for a launch spike without a redeploy. Resets at UTC midnight
@@ -188,7 +188,7 @@ async def start_audit(
         batch_already_charged = ins.rowcount == 0
 
     # Platform-wide daily cap. Every non-admin audit counts (including each brand in a
-    # comparison — they each cost a real Bedrock run even though the USER is charged one
+    # comparison — they each cost a real inference run even though the USER is charged one
     # credit). Atomic increment on a per-day key; reject once the day's total is reached.
     # This is the real spend ceiling that incognito/VPN/browser-switching can't dodge.
     if not is_admin(session_id, x_admin_key):

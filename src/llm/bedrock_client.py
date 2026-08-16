@@ -18,6 +18,15 @@ from dotenv import load_dotenv
 
 from src.llm.client import OPENROUTER_BASE
 
+# Headroom for reasoning models, which bill hidden reasoning tokens against the SAME
+# max_tokens budget as the visible answer. Call sites size maxTokens for the answer
+# alone, so without headroom the budget is spent thinking and the reply arrives
+# truncated mid-JSON. Gemini 3.x mandates reasoning and cannot opt out.
+# Applied as "answer budget + fixed headroom" rather than a flat floor: a flat floor
+# rescued the 30-token category call but still truncated the 1400-token
+# recommendations call, which needs its full answer budget AND room to think.
+REASONING_HEADROOM = 800
+
 load_dotenv()
 log = structlog.get_logger()
 
@@ -47,7 +56,7 @@ class ConverseShim:
             ],
         }
         if "maxTokens" in cfg:
-            payload["max_tokens"] = cfg["maxTokens"]
+            payload["max_tokens"] = cfg["maxTokens"] + REASONING_HEADROOM
         if "temperature" in cfg:
             payload["temperature"] = cfg["temperature"]
 

@@ -10,24 +10,40 @@ log = structlog.get_logger()
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
-# The probe panel. Four DIFFERENT model families so "cross-model visibility" is a
-# credible measurement rather than one vendor's opinion sampled four times.
-# All are OpenRouter `:free` variants — no card needed, and no cloud-provider lock-in:
-# swapping a model is a string change here, not a client rewrite.
-# Free tier is rate-limited (~50 req/day; ~1000/day once the account has any credit),
-# so GLOBAL_DAILY_AUDIT_CAP in .env should stay low unless you top up.
+# The probe panel: the four assistants real buyers actually ask before they buy.
+# Four DIFFERENT vendors so "cross-model visibility" is a credible measurement rather
+# than one lab's opinion sampled four times. Swapping a model is a string change here,
+# not a client rewrite.
+#
+# Sized deliberately: these are the small/fast tier of each family, but NOT the nano
+# tier. Nano models genuinely don't know mid-size brands, which reads as "invisible"
+# when it's really just a thin model — a measurement artifact we don't want.
+#
+# These are paid (no `:free` suffix): roughly $0.06-0.10 per audit all-in. Keep
+# GLOBAL_DAILY_AUDIT_CAP in .env low enough that the credit balance can absorb a day.
 DEFAULT_MODELS: list[str] = [
-    "deepseek/deepseek-chat-v3.1:free",              # DeepSeek
-    "meta-llama/llama-3.3-70b-instruct:free",        # Meta
-    "qwen/qwen3-235b-a22b:free",                     # Qwen / Alibaba
-    "mistralai/mistral-small-3.2-24b-instruct:free", # Mistral
+    "openai/gpt-5.4-mini",        # OpenAI
+    "google/gemini-3.7-flash",    # Google
+    "x-ai/grok-4.3",              # xAI
+    "anthropic/claude-haiku-4.5", # Anthropic
 ]
 
 # Single model for the orchestration roles (question generation, category inference,
 # analysis, entity verification). These are single-model jobs where vendor diversity
-# buys nothing, so we use one reliable free model instead of burning panel quota.
-ORCHESTRATOR_MODEL = "deepseek/deepseek-chat-v3.1:free"
-QUESTION_MODEL = "deepseek/deepseek-chat-v3.1:free"
+# buys nothing, so we use the cheapest capable panel model and keep orchestration at
+# roughly 15% of the spend.
+ORCHESTRATOR_MODEL = "google/gemini-3.7-flash"
+QUESTION_MODEL = "google/gemini-3.7-flash"
+
+# Models where reasoning is billed as output tokens AND can be turned off. A probe
+# should capture the model's plain first answer (what a real user sees), and reasoning
+# is pure cost here: on Grok 4.3 a short probe went 381 output tokens -> 74 with it off.
+# NOT a blanket setting — some endpoints (Gemini 3.x) reject `reasoning.enabled=false`
+# outright with HTTP 400 "Reasoning mandatory for endpoint", so only list models
+# verified to accept it.
+REASONING_OPTIONAL: frozenset[str] = frozenset({
+    "x-ai/grok-4.3",
+})
 
 
 class OpenRouterClient:
@@ -45,6 +61,8 @@ class OpenRouterClient:
             "HTTP-Referer": "https://aura-ai.app",
         }
         payload: dict = {"model": model, "messages": messages}
+        if model in REASONING_OPTIONAL:
+            payload["reasoning"] = {"enabled": False}
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if temperature is not None:

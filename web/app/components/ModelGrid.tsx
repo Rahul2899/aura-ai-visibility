@@ -30,10 +30,20 @@ const PROVIDER_THEMES: Record<string, { label: string; badgeClass: string; dotCl
     badgeClass: "border-slate-300 bg-slate-100 text-slate-600",
     dotClass: "bg-slate-400",
   },
+  xai: {
+    label: "xAI",
+    badgeClass: "border-neutral-400/30 bg-neutral-500/5 text-neutral-700",
+    dotClass: "bg-neutral-800",
+  },
   qwen: {
     label: "Qwen",
     badgeClass: "border-purple-500/20 bg-purple-500/5 text-purple-500",
     dotClass: "bg-purple-500",
+  },
+  deepseek: {
+    label: "DeepSeek",
+    badgeClass: "border-indigo-500/20 bg-indigo-500/5 text-indigo-500",
+    dotClass: "bg-indigo-500",
   },
   nvidia: {
     label: "NVIDIA",

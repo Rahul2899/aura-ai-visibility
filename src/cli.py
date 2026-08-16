@@ -106,7 +106,7 @@ def orchestrate_audit(
     brand_id: int = typer.Argument(..., help="Brand ID to audit"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Generate probes without making audit calls"),
 ):
-    """Run an AI-orchestrated audit — Claude generates probes and synthesizes findings."""
+    """Run an AI-orchestrated audit — an LLM generates probes and synthesizes findings."""
     async def _run():
         async with SessionLocal() as session:
             insight = await orchestrate(session, brand_id, dry_run=dry_run)

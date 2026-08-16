@@ -88,11 +88,11 @@ graph TD
 
     subgraph Phase_A["Phase A — understand & ask (blind)"]
         Web["Live web context<br/>(homepage / search)"] --> Gen
-        Gen["Question generator<br/>(Claude Sonnet 4.6)"] --> Qs["10 questions<br/>8 category (scored) + 2 brand-direct"]
+        Gen["Question generator<br/>(Gemini 3.7 Flash)"] --> Qs["10 questions<br/>8 category (scored) + 2 brand-direct"]
     end
 
     subgraph Phase_B["Phase B — probe in parallel"]
-        Panel["Model panel (4 families)<br/>Claude Sonnet · Amazon Nova Pro<br/>Qwen3 32B · NVIDIA Nemotron"]
+        Panel["Model panel (4 vendors)<br/>GPT-5.4 Mini · Gemini 3.7 Flash<br/>Grok 4.3 · Claude Haiku 4.5"]
         Extract["Mention extractor<br/>(LLM → Pydantic JSON)"]
         Panel --> Extract
     end
@@ -104,9 +104,11 @@ graph TD
     API -. live progress (SSE-style feed) .-> User
 ```
 
-**Two-phase audit.** Phase A grounds the brand in live web context and writes the questions. Phase B fires every question across the model panel **concurrently** (one bounded wave, not sequentially), extracts brand mentions from each answer with a structured LLM extractor, and a fast model (Claude Haiku) writes the factual summary.
+**Two-phase audit.** Phase A grounds the brand in live web context and writes the questions. Phase B fires every question across the model panel **concurrently** (one bounded wave, not sequentially), extracts brand mentions from each answer with a structured LLM extractor, and a fast model (Gemini 3.7 Flash) writes the factual summary.
 
-**Four model families on purpose.** Claude Sonnet 4.6, Amazon Nova Pro, Qwen3 32B, and NVIDIA Nemotron — four *different* vendors so "cross-model visibility" is a credible measurement rather than one lab's opinion. Failed model calls are excluded from the denominator (a model that errored is "unknown," never counted as a "no").
+**Four vendors on purpose.** GPT-5.4 Mini, Gemini 3.7 Flash, Grok 4.3, and Claude Haiku 4.5 — the four assistants real buyers actually ask before they buy, from four *different* labs, so "cross-model visibility" is a credible measurement rather than one lab's opinion. Failed model calls are excluded from the denominator (a model that errored is "unknown," never counted as a "no").
+
+Panel models are the small/fast tier of each family but deliberately **not** the nano tier: very small models don't reliably know mid-size brands, which would read as "invisible" when it's really just a thin model. All four are reached through a single OpenRouter account, so swapping one is a one-line change.
 
 ---
 

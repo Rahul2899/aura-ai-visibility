@@ -9,7 +9,7 @@ import pytest
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 
-from src.llm.bedrock_client import ConverseShim
+from src.llm.bedrock_client import ConverseShim, REASONING_HEADROOM
 
 
 def _capture(monkeypatch, reply="hello"):
@@ -42,7 +42,10 @@ def test_system_and_content_blocks_are_flattened(monkeypatch):
         {"role": "system", "content": "be terse"},
         {"role": "user", "content": "hi"},
     ]
-    assert sent["max_tokens"] == 50
+    # Reasoning models bill hidden reasoning against the same budget as the visible
+    # answer, so the shim adds headroom on top of the caller's answer budget. Without
+    # it, a small cap is spent thinking and the reply arrives truncated mid-JSON.
+    assert sent["max_tokens"] == 50 + REASONING_HEADROOM
     assert sent["temperature"] == 0.2
 
 

@@ -129,6 +129,19 @@ async def _scrape_homepage(name: str, domain: str) -> str | None:
                 return result
         except Exception as e2:
             log.warning("homepage_fetch_failed", brand=name, domain=domain, error=str(e2))
+    # Last resort: many big sites only serve on "www" and leave the apex with no A
+    # record at all (starbucks.com is one), so the fetch above fails at DNS. Retry via
+    # www — re-validated through _safe_https_url, so the SSRF gate stays closed.
+    if not host.startswith("www."):
+        www_url = _safe_https_url(f"www.{host}", keep_www=True)
+        if www_url:
+            try:
+                result = await _fetch_safe(www_url, name)
+                if result:
+                    log.info("homepage_fetched_via_www", brand=name, domain=domain)
+                    return result
+            except Exception as e3:
+                log.warning("homepage_www_failed", brand=name, domain=domain, error=str(e3))
     return None
 
 
@@ -265,11 +278,15 @@ def extract_page_signal(html: str) -> str:
     return summary[:1500]
 
 
-def _safe_https_url(domain: str) -> str | None:
+def _safe_https_url(domain: str, keep_www: bool = False) -> str | None:
     """Return https://{domain} only if domain is a valid public hostname.
     Rejects: http(s):// prefixes, paths, ports, loopback, RFC1918, link-local,
     and cloud metadata addresses. Always builds the URL itself — never trusts
-    user-supplied scheme."""
+    user-supplied scheme.
+
+    keep_www: by default "www." is stripped so the apex is canonical. Set this when
+    retrying a host that only serves on www (some apexes have no A record at all) —
+    stripping it there would just retry the address that already failed."""
     import ipaddress
     import socket
     import re as _re
@@ -283,7 +300,7 @@ def _safe_https_url(domain: str) -> str | None:
     domain = domain.split("@")[-1]                                  # userinfo
     domain = domain.split(":")[0]                                   # port
     domain = domain.rstrip(".").lower()
-    if domain.startswith("www."):
+    if domain.startswith("www.") and not keep_www:
         domain = domain[4:]
 
     # Must now be a bare hostname: letters, digits, hyphens, dots — no scheme/path/port
@@ -639,10 +656,20 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     if web_context:
         parts.append(f"Web context: {web_context[:800]}")
     user = "\n".join(parts) + (
-        "\n\nIn 2-6 words, name the specific product CATEGORY this brand sells in, as a "
-        "buyer would think of it (e.g. 'premium chocolate', 'electric SUV', 'applicant "
-        "tracking software', 'boutique hotel in Lisbon'). Return ONLY the category phrase, "
-        "no brand name, no punctuation, no explanation."
+        "\n\nIn 2-6 words, name the CATEGORY a buyer is choosing between when they end up "
+        "with this brand.\n\n"
+        # Decide the KIND of business before the label. Asking only for a "product
+        # category" makes venue brands come back as the product they serve — Starbucks
+        # scored as 'specialty coffee beverages' and was then measured against
+        # whole-bean roasters, a market it isn't in. A cafe competes with cafes.
+        "First decide what KIND of thing it is:\n"
+        "- a place people GO (cafe, restaurant, gym, hotel, salon, shop) -> name the "
+        "venue category, e.g. 'coffee shop chain', 'fast casual restaurant'\n"
+        "- a product people BUY (chocolate, shoes, software) -> name the product "
+        "category, e.g. 'premium chocolate', 'applicant tracking software'\n"
+        "- a service people HIRE (agency, consultancy, insurer) -> name the service "
+        "category, e.g. 'freelance design agency'\n\n"
+        "Return ONLY the category phrase, no brand name, no punctuation, no explanation."
     )
     try:
         resp = await asyncio.to_thread(
@@ -713,7 +740,7 @@ No prose, no markdown fences."""
 
 
 async def _generate_analysis(bedrock, brand_name: str, visibility_pct: float, probe_results: list[dict]) -> dict:
-    """Phase B analysis: one fast Haiku call to write the summary + factual findings."""
+    """Phase B analysis: one fast orchestrator call to write the summary + factual findings."""
     payload = {"brand": brand_name, "overall_visibility_pct": visibility_pct, "probes": probe_results}
     resp = await asyncio.to_thread(
         lambda: bedrock.converse(
@@ -817,7 +844,7 @@ async def _verify_entity(bedrock, name: str, industry: str | None, web_context: 
         "company that happens to share the name, and not generic/unrelated results)? "
         'Answer ONLY with JSON: {"match": true|false}.'
     )
-    # Retry transient Bedrock errors (mainly ThrottlingException) with backoff so a
+    # Retry transient upstream errors (mainly rate limiting) with backoff so a
     # busy moment doesn't masquerade as "couldn't identify the brand". We only fail
     # closed when the MODEL itself answers no, or when retries are exhausted — never
     # because a single call got throttled.
