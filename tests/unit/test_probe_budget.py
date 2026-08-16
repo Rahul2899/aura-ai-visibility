@@ -26,8 +26,16 @@ def test_extraction_is_capped():
     emitting a short JSON array."""
     budget = extract_token_budget(ORCHESTRATOR_MODEL)
     assert budget <= EXTRACT_MAX_TOKENS + REASONING_HEADROOM
-    # Must still clear the JSON itself once reasoning has taken its share.
-    assert budget - REASONING_HEADROOM >= 400
+
+
+def test_extraction_budget_fits_a_realistic_brand_list():
+    """The first cap (500) truncated the JSON mid-object on longer answers: 11 of 40
+    calls failed validation and a failed extraction scores the probe as "not mentioned".
+    Measured answers name 5 brands on average, up to 7; each mention is ~60 tokens of
+    JSON. The answer budget must clear a realistic list with margin, separately from
+    whatever reasoning headroom the model gets."""
+    TOKENS_PER_MENTION = 60
+    assert EXTRACT_MAX_TOKENS >= 12 * TOKENS_PER_MENTION
 
 
 def test_mandatory_reasoning_models_get_headroom():

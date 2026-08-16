@@ -41,7 +41,13 @@ async def extract_mentions(
             messages.append({"role": "assistant", "content": last_raw})
             messages.append({
                 "role": "user",
-                "content": f"Your response failed JSON validation: {last_error}\n\nPlease return ONLY valid JSON matching the schema.",
+                "content": (
+                    f"Your response failed JSON validation: {last_error}\n\n"
+                    # The common failure is a response that ran out of tokens mid-object,
+                    # so the retry must produce something SHORTER, not another long list.
+                    "Return ONLY valid JSON matching the schema, and keep it compact — "
+                    "omit cited_urls when there is no URL rather than repeating empty lists."
+                ),
             })
 
         result = await client.complete(model=model, messages=messages,

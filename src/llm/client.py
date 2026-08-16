@@ -72,11 +72,13 @@ def probe_token_budget(model: str) -> int:
     return PROBE_MAX_TOKENS + (REASONING_HEADROOM if model in REASONING_MANDATORY else 0)
 
 
-# Extraction returns a short JSON array of brand names — a few hundred tokens even for a
-# long answer. It ran uncapped and became the single largest output in an audit (more
-# than all four probe models combined) because the reasoning model thinks before
-# emitting JSON. Same headroom rule: room to reason, then a bounded answer.
-EXTRACT_MAX_TOKENS = 500
+# Extraction returns one JSON object per brand found (name, position, sentiment, URLs),
+# roughly 40-60 tokens each. Measured probe answers name 5 brands on average and up to 7,
+# so a 500-token budget truncated the JSON mid-object on the longer ones: 11 of 40 calls
+# failed validation with "Expecting property name enclosed in double quotes", and each
+# retry cost a full second call. A failed extraction scores the probe as "brand not
+# mentioned", so this was corrupting results, not just cost. 1200 covers ~20 brands.
+EXTRACT_MAX_TOKENS = 1200
 
 
 def extract_token_budget(model: str) -> int:
