@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { reloadPage } from "../../lib/navigation";
-import { authHeaders } from "../../lib/session";
+import { authHeaders, isAdminMode } from "../../lib/session";
 import { REGIONS } from "./RegionComparison";
 import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus } from "lucide-react";
 
@@ -31,6 +31,12 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
   // Chosen market for the audit: the detected home region, or null = Global. Pre-set from
   // the preview's detected_region; the user can flip it on the confirm card before running.
   const [region, setRegion] = useState<string | null>(null);
+  // Demo brands are read-only for visitors, but the admin owns them and needs to
+  // re-run them (stale demo scores are the most visible thing on the dashboard after a
+  // scoring fix). Resolved in an effect because isAdminMode() reads localStorage, which
+  // isn't available during the server render.
+  const [lockedDemo, setLockedDemo] = useState(isExample);
+  useEffect(() => { setLockedDemo(isExample && !isAdminMode()); }, [isExample]);
   const started = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const customRef = useRef<HTMLDivElement | null>(null);
@@ -270,10 +276,10 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
       <div className="relative">
       <button
         onClick={() => runPreview()}
-        disabled={running || previewing || !!preview || isExample}
-        title={isExample ? "Demo brands are read-only. Add your own brand to run a fresh audit." : undefined}
+        disabled={running || previewing || !!preview || lockedDemo}
+        title={lockedDemo ? "Demo brands are read-only. Add your own brand to run a fresh audit." : undefined}
         className="btn-primary flex items-center gap-2 text-sm relative overflow-hidden"
-        aria-label={running ? "Running audit queries" : isExample ? "Demo brand — auditing disabled" : "Execute brand audit queries"}
+        aria-label={running ? "Running audit queries" : lockedDemo ? "Demo brand — auditing disabled" : "Execute brand audit queries"}
       >
         {running ? (
           <>
@@ -285,7 +291,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
             <Loader2 className="w-4 h-4 animate-spin text-white" />
             <span>Checking…</span>
           </>
-        ) : isExample ? (
+        ) : lockedDemo ? (
           <>
             <Play className="w-4 h-4 text-white fill-white" />
             <span>Demo (read-only)</span>

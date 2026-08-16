@@ -75,6 +75,16 @@ def test_name_match_generalises_beyond_the_deny_list():
     assert _is_company_site("peec.ai", brand_name="peecai")
 
 
+def test_fallback_does_not_readmit_an_article():
+    """The fallback (added so brands with mismatched domains don't vanish) re-admitted
+    exactly what the name check had just rejected: with only marketermilk.com/blog/peec-ai
+    in the results it became the single candidate, was selected because it was the only
+    option, and the audit inferred the category "marketing news platform". An article
+    lives at a path; a company's own site is the root."""
+    results = [_result("https://www.marketermilk.com/blog/peec-ai", "Peec AI Review")]
+    assert group_candidates(results, brand_name="PeecAI") == []
+
+
 def test_unlisted_site_survives_when_nothing_matches_the_name():
     """Real companies do have domains without their name (rebrands, acronyms, parent
     companies). Those must not vanish — they're kept as a fallback when the name-matching

@@ -253,6 +253,18 @@ def _is_company_site(domain: str, brand_name: str | None = None) -> bool:
     return True
 
 
+def _looks_like_a_homepage(url: str) -> bool:
+    """True when the URL is a site root rather than an article on it. A company's own
+    site surfaces as 'https://peec.ai/'; a write-up about it lives at a path like
+    '/blog/peec-ai'. Used only for the fallback candidates, where the domain doesn't
+    carry the brand name and depth is the remaining signal — marketermilk.com/blog/peec-ai
+    was accepted as PeecAI's site and made the category "marketing news platform"."""
+    path = re.sub(r"^[a-z][a-z0-9+.\-]*://", "", (url or "").strip().lower())
+    path = path.split("?")[0].split("#")[0]
+    segments = [s for s in path.split("/")[1:] if s]
+    return len(segments) == 0
+
+
 def group_candidates(results: list[dict], brand_name: str | None = None) -> list[dict]:
     """Group raw search results by registrable domain into distinct entity candidates.
     Each result is {url, title, content}. Returns one candidate per domain:
@@ -271,7 +283,7 @@ def group_candidates(results: list[dict], brand_name: str | None = None) -> list
         }
         if _is_company_site(dom, brand_name):
             by_domain[dom] = entry
-        elif _is_company_site(dom):
+        elif _is_company_site(dom) and _looks_like_a_homepage(r.get("url", "")):
             # Passes the deny-list but its domain doesn't carry the brand name. Plenty
             # of real companies are like that (a rebrand, an acronym, a parent-company
             # domain), so keep it as a fallback rather than dropping it — but only show

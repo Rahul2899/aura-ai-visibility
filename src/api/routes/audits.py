@@ -156,7 +156,10 @@ async def start_audit(
         brand = await session.get(Brand, brand_id)
         if not brand:
             raise HTTPException(status_code=404, detail="Brand not found.")
-        if brand.session_id == "example":
+        # Demo brands are read-only for visitors so their showcase scores can't be
+        # overwritten. The admin owns them and needs to re-run them — after a scoring
+        # bug, stale demo numbers are the most visible thing on the dashboard.
+        if brand.session_id == "example" and not is_admin(session_id, x_admin_key):
             raise HTTPException(status_code=400, detail="Cannot run new audits on preloaded example brands.")
         require_owner_or_admin(brand, session_id, x_admin_key)
 
