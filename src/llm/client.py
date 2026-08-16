@@ -19,8 +19,10 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 # tier. Nano models genuinely don't know mid-size brands, which reads as "invisible"
 # when it's really just a thin model — a measurement artifact we don't want.
 #
-# These are paid (no `:free` suffix): roughly $0.06-0.10 per audit all-in. Keep
-# GLOBAL_DAILY_AUDIT_CAP in .env low enough that the credit balance can absorb a day.
+# These are paid (no `:free` suffix). Measure real spend on openrouter.ai/activity
+# before assuming a per-audit figure — an early estimate here was off by ~5x because
+# extraction was running on the probe model. Keep GLOBAL_DAILY_AUDIT_CAP in .env low
+# enough that the credit balance can absorb a day.
 DEFAULT_MODELS: list[str] = [
     "openai/gpt-5.4-mini",        # OpenAI
     "google/gemini-3.7-flash",    # Google
@@ -68,7 +70,7 @@ class OpenRouterClient:
                        max_tokens: int | None = None, temperature: float | None = None) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": "https://aura-ai.app",
+            "HTTP-Referer": "https://mapthemodel.duckdns.org",
         }
         payload: dict = {"model": model, "messages": messages}
         if model in REASONING_OPTIONAL:

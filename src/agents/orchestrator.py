@@ -21,7 +21,7 @@ from src.llm.client import (
     QUESTION_MODEL,
     PROBE_MAX_TOKENS,
 )
-from src.llm.bedrock_client import ConverseShim
+from src.llm.converse_shim import ConverseShim
 from src.llm.extractor import extract_mentions
 
 log = structlog.get_logger()
@@ -354,10 +354,10 @@ MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS]
 
 # Friendly names for the live activity feed. .get fallback means a model swap can't crash the feed.
 MODEL_DISPLAY = {
-    "deepseek/deepseek-chat-v3.1:free": "DeepSeek V3.1",
-    "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B",
-    "qwen/qwen3-235b-a22b:free": "Qwen3 235B",
-    "mistralai/mistral-small-3.2-24b-instruct:free": "Mistral Small 3.2",
+    "openai/gpt-5.4-mini": "GPT-5.4 Mini",
+    "google/gemini-3.7-flash": "Gemini 3.7 Flash",
+    "x-ai/grok-4.3": "Grok 4.3",
+    "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
 }
 
 
@@ -378,10 +378,6 @@ def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
 
 
 
-def _bedrock_client():
-    # Name kept so the ~10 call sites below don't churn. Returns the OpenRouter-backed
-    # shim exposing the same .converse() shape — no AWS, no boto3, no instance role.
-    return ConverseShim()
 
 
 def _fold(s: str) -> str:
@@ -630,9 +626,9 @@ Write 2 questions that name the brand directly: e.g. its pricing tiers, a key in
 Return ONLY JSON: {"questions": ["...", "..."]}. No prose, no markdown fences."""
 
 
-async def _gen_questions_from_prompt(bedrock, system_prompt: str, user_text: str, n_hint: int) -> list[str]:
+async def _gen_questions_from_prompt(llm, system_prompt: str, user_text: str, n_hint: int) -> list[str]:
     resp = await asyncio.to_thread(
-        lambda: bedrock.converse(
+        lambda: llm.converse(
             modelId=QUESTION_MODEL,
             system=[{"text": system_prompt}],
             messages=[{"role": "user", "content": [{"text": user_text}]}],
@@ -666,7 +662,7 @@ def _strip_brand(text: str, brand: str) -> str:
     return re.sub(rf"(?<![a-z0-9]){re.escape(brand)}(?![a-z0-9])", "the brand", text, flags=re.IGNORECASE)
 
 
-async def _infer_category(bedrock, name: str, industry: str | None, web_context: str | None) -> str:
+async def _infer_category(llm, name: str, industry: str | None, web_context: str | None) -> str:
     """Derive a short, concrete category label (e.g. "premium chocolate / confectionery",
     "electric SUV", "applicant tracking software") used to GROUND the neutral question
     generator. This is what makes Aura genre-independent: even when the user gave no
@@ -703,7 +699,7 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     )
     try:
         resp = await asyncio.to_thread(
-            lambda: bedrock.converse(
+            lambda: llm.converse(
                 modelId=ORCHESTRATOR_MODEL,
                 messages=[{"role": "user", "content": [{"text": user}]}],
                 inferenceConfig={"maxTokens": 30, "temperature": 0.2},
@@ -719,7 +715,7 @@ async def _infer_category(bedrock, name: str, industry: str | None, web_context:
     return (industry or "").strip() or "this product category"
 
 
-async def _generate_questions(bedrock, context: dict, custom_questions: list[str] | None, category_override: str | None = None, region: str | None = None) -> tuple[list[str], str]:
+async def _generate_questions(llm, context: dict, custom_questions: list[str] | None, category_override: str | None = None, region: str | None = None) -> tuple[list[str], str]:
     """Generate the probe set in two BLIND pools to avoid brand-shaped questions:
       - category questions: generated from the inferred CATEGORY ONLY (brand withheld)
         -> neutral, these are what get scored for true organic visibility.
@@ -736,7 +732,7 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
     if category_override and category_override.strip():
         category = category_override.strip()[:60]
     else:
-        category = await _infer_category(bedrock, name, industry, web_context)
+        category = await _infer_category(llm, name, industry, web_context)
     log.info("category_inferred", brand=name, category=category)
     # Region scoping: when a home market is chosen, frame the buyer questions for THAT
     # market so the models name real LOCAL competitors and the brand is measured fairly in
@@ -748,12 +744,12 @@ async def _generate_questions(bedrock, context: dict, custom_questions: list[str
         f"Category: {category}\n\n"
         f"Write 8 neutral buyer questions for THIS category as JSON.{region_line} Do NOT name any specific brand."
     )
-    category_qs = await _gen_questions_from_prompt(bedrock, CATEGORY_GEN_PROMPT, cat_user, 8)
+    category_qs = await _gen_questions_from_prompt(llm, CATEGORY_GEN_PROMPT, cat_user, 8)
 
     # Pool 2: brand-direct (knows the brand) — for detail, not scored.
     brand_ctx = {k: context[k] for k in ("name", "industry", "web_context") if k in context}
     brand_user = f"Brand:\n{json.dumps(brand_ctx, indent=2)}\n\nWrite 2 brand-specific questions as JSON."
-    brand_direct = await _gen_questions_from_prompt(bedrock, BRAND_GEN_PROMPT, brand_user, 2)
+    brand_direct = await _gen_questions_from_prompt(llm, BRAND_GEN_PROMPT, brand_user, 2)
 
     custom = [q.strip() for q in (custom_questions or []) if q.strip()]
     # custom first, then neutral category (scored), then brand-direct (detail). Cap at 12.
@@ -769,11 +765,11 @@ Return ONLY JSON: {"summary": "...", "key_findings": ["...", "..."]}.
 No prose, no markdown fences."""
 
 
-async def _generate_analysis(bedrock, brand_name: str, visibility_pct: float, probe_results: list[dict]) -> dict:
+async def _generate_analysis(llm, brand_name: str, visibility_pct: float, probe_results: list[dict]) -> dict:
     """Phase B analysis: one fast orchestrator call to write the summary + factual findings."""
     payload = {"brand": brand_name, "overall_visibility_pct": visibility_pct, "probes": probe_results}
     resp = await asyncio.to_thread(
-        lambda: bedrock.converse(
+        lambda: llm.converse(
             modelId=ORCHESTRATOR_MODEL,
             system=[{"text": ANALYSIS_PROMPT}],
             messages=[{"role": "user", "content": [{"text": json.dumps(payload)}]}],
@@ -809,7 +805,7 @@ Return ONLY JSON: {"recommendations": [ {"priority": 1, "gap": "...", "why": "..
 No prose, no markdown fences."""
 
 
-async def _generate_recommendations(bedrock, brand_name: str, industry: str | None,
+async def _generate_recommendations(llm, brand_name: str, industry: str | None,
                                     lost_evidence: list[dict]) -> list[dict]:
     """Read the REAL losing-query evidence (competitors who won + verbatim answer excerpts)
     and extract per-brand, grounded recommendations. The evidence is gathered deterministically
@@ -827,7 +823,7 @@ async def _generate_recommendations(bedrock, brand_name: str, industry: str | No
     payload = {"brand": brand_name, "industry": industry or "unknown", "lost_questions": lost_evidence}
     try:
         resp = await asyncio.to_thread(
-            lambda: bedrock.converse(
+            lambda: llm.converse(
                 modelId=ORCHESTRATOR_MODEL,
                 system=[{"text": RECOMMENDATIONS_PROMPT}],
                 messages=[{"role": "user", "content": [{"text": json.dumps(payload)[:14000]}]}],
@@ -860,7 +856,7 @@ async def _generate_recommendations(bedrock, brand_name: str, industry: str | No
         return []
 
 
-async def _verify_entity(bedrock, name: str, industry: str | None, web_context: str) -> bool:
+async def _verify_entity(llm, name: str, industry: str | None, web_context: str) -> bool:
     """Cheap check: does the web_context actually describe a company called `name`
     (in `industry`, if given)? Guards against auditing a different same-named entity
     when the data came from a name-based search rather than the brand's own domain.
@@ -882,7 +878,7 @@ async def _verify_entity(bedrock, name: str, industry: str | None, web_context: 
     for attempt in range(3):
         try:
             resp = await asyncio.to_thread(
-                lambda: bedrock.converse(
+                lambda: llm.converse(
                     modelId=ORCHESTRATOR_MODEL,
                     messages=[{"role": "user", "content": [{"text": prompt}]}],
                     inferenceConfig={"maxTokens": 50, "temperature": 0},
@@ -915,7 +911,7 @@ async def preview_audit(session: AsyncSession, brand_id: int, domain_override: s
     domain_override: when the user picks a disambiguation candidate, we persist that
     domain on the brand so the homepage (authoritative) is used from here on — turning
     an ambiguous name into a confirmed entity."""
-    bedrock = _bedrock_client()
+    llm = ConverseShim()
     brand = await session.get(Brand, brand_id)
     if not brand:
         raise ValueError(f"Brand {brand_id} not found")
@@ -944,10 +940,10 @@ async def preview_audit(session: AsyncSession, brand_id: int, domain_override: s
     # company, so verify before we claim we found the right one.
     found = True
     if source != "homepage":
-        if not web_ctx or not await _verify_entity(bedrock, name, brand.industry, web_ctx):
+        if not web_ctx or not await _verify_entity(llm, name, brand.industry, web_ctx):
             found = False
 
-    category = await _infer_category(bedrock, name, brand.industry, web_ctx) if found else ""
+    category = await _infer_category(llm, name, brand.industry, web_ctx) if found else ""
     summary = (web_ctx or "")[:240]
     # Detected home market (None = no confident signal = "Global"). Independent of the
     # entity gate: the domain TLD is a valid market signal even when confirmation is unsure.
@@ -968,7 +964,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             except Exception:
                 pass
 
-    bedrock = _bedrock_client()
+    llm = ConverseShim()
     brand = await session.get(Brand, brand_id)
     target_brand = brand.name if brand else ""
     model_hits: dict[str, list[bool]] = {}  # {model: [mentioned_per_probe]}
@@ -992,12 +988,12 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
             log.warning("brand_unconfirmed_no_data", brand_id=brand_id, name=target_brand)
             raise BrandNotConfirmed(target_brand)
         emit("Confirming brand identity…")
-        if not await _verify_entity(bedrock, target_brand, context.get("industry"), web_ctx):
+        if not await _verify_entity(llm, target_brand, context.get("industry"), web_ctx):
             log.warning("brand_unconfirmed_mismatch", brand_id=brand_id, name=target_brand)
             raise BrandNotConfirmed(target_brand)
 
     emit("Gathered brand context. Generating questions…")
-    questions, inferred_category = await _generate_questions(bedrock, context, custom_questions, category_override=category_override, region=region)
+    questions, inferred_category = await _generate_questions(llm, context, custom_questions, category_override=category_override, region=region)
     if not questions:
         log.error("no_questions_generated", brand_id=brand_id)
         return None
@@ -1082,7 +1078,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     model_breakdown = {m: round(sum(h) / len(h) * 100, 1) for m, h in model_hits.items() if h}
     emit(f"Scoring visibility… {visibility_pct}%")
 
-    analysis = await _generate_analysis(bedrock, target_brand, visibility_pct, probe_results)
+    analysis = await _generate_analysis(llm, target_brand, visibility_pct, probe_results)
 
     # "How to improve": read the real losing-query evidence (winners + verbatim answers)
     # and surface grounded, per-brand recommendations. Additive — never blocks the audit.
@@ -1090,7 +1086,7 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     if lost_evidence:
         emit("Analyzing why competitors won…")
         recommendations = await _generate_recommendations(
-            bedrock, target_brand, brand.industry if brand else None, lost_evidence[:6]
+            llm, target_brand, brand.industry if brand else None, lost_evidence[:6]
         )
 
     insight = Insight(

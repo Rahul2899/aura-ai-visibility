@@ -9,7 +9,7 @@ import pytest
 
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 
-from src.llm.bedrock_client import ConverseShim, REASONING_HEADROOM
+from src.llm.converse_shim import ConverseShim, REASONING_HEADROOM
 
 
 def _capture(monkeypatch, reply="hello"):
