@@ -193,6 +193,35 @@ def _registrable_domain(url_or_host: str) -> str:
     return s.rstrip(".")
 
 
+# Sites that WRITE ABOUT companies instead of BEING one. A search for a company name
+# ranks these highly, and each used to become its own "candidate" carrying the article's
+# title — so the picker offered "Acme GmbH | LinkedIn" and selecting it set the brand's
+# domain to linkedin.com, auditing LinkedIn's homepage instead of the company's. Matched
+# on the registrable domain, so subdomains (de.linkedin.com, en.wikipedia.org) are caught.
+_NON_COMPANY_DOMAINS: frozenset[str] = frozenset({
+    "linkedin.com", "crunchbase.com", "wikipedia.org", "facebook.com", "instagram.com",
+    "twitter.com", "x.com", "youtube.com", "tiktok.com", "pinterest.com", "reddit.com",
+    "bloomberg.com", "glassdoor.com", "indeed.com", "yelp.com", "tripadvisor.com",
+    "trustpilot.com", "amazon.com", "ebay.com", "medium.com", "github.com",
+    "zoominfo.com", "dnb.com", "pitchbook.com", "owler.com", "companieshouse.gov.uk",
+    "northdata.com", "kununu.com", "xing.com", "yellowpages.com", "bbb.org",
+})
+
+
+def _is_company_site(domain: str) -> bool:
+    """True if the domain could plausibly BE a company rather than a page about one.
+    Checks the registrable domain and its parent (so 'en.wikipedia.org' is rejected via
+    'wikipedia.org'), since _registrable_domain keeps subdomains."""
+    if not domain:
+        return False
+    parts = domain.split(".")
+    # Test the full host and each parent suffix: en.wikipedia.org -> wikipedia.org -> org
+    for i in range(len(parts) - 1):
+        if ".".join(parts[i:]) in _NON_COMPANY_DOMAINS:
+            return False
+    return True
+
+
 def group_candidates(results: list[dict]) -> list[dict]:
     """Group raw search results by registrable domain into distinct entity candidates.
     Each result is {url, title, content}. Returns one candidate per domain:
@@ -203,6 +232,8 @@ def group_candidates(results: list[dict]) -> list[dict]:
         dom = _registrable_domain(r.get("url", ""))
         if not dom or dom in by_domain:
             continue  # first result per domain wins (search is ranked)
+        if not _is_company_site(dom):
+            continue  # a page ABOUT the company, not the company's own site
         by_domain[dom] = {
             "domain": dom,
             "title": (r.get("title") or dom).strip()[:80],
