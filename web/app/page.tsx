@@ -418,20 +418,33 @@ export default function Home() {
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 space-y-5">
         {/* Hero — tell a first-time visitor exactly what this is */}
         <Reveal>
-          <section className="hero-glow text-center max-w-2xl mx-auto pt-5 sm:pt-8 pb-2 space-y-3 px-1">
+          <section className="instrument-hero text-center max-w-5xl mx-auto space-y-3 px-1">
             <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
-              AI Brand Visibility
+              AI visibility measurement · four-model panel
             </span>
             <h1 className="display text-2xl leading-[1.15] sm:text-5xl sm:leading-[1.05] text-slate-900 px-2 text-balance break-words">
-              See how often AI models <span className="text-gradient">recommend</span> your brand
+              See the recommendation gap before buyers do
             </h1>
             <p className="text-slate-500 text-sm sm:text-base font-medium leading-relaxed max-w-xl mx-auto">
-              When buyers ask AI assistants for recommendations, does your brand show up? MapTheModel runs real buyer questions across four AI models, measures your visibility, and shows exactly where you appear.
+              MapTheModel runs buyer-style questions across AI models, then preserves the questions, responses, and evidence behind every visibility score.
             </p>
             <div className="pt-1">
               <a href="#audit-form" data-magnetic className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 text-sm">
                 <Plus className="w-4 h-4 text-white" /> Audit your brand
               </a>
+            </div>
+            <div className="evidence-ribbon" aria-label="How an audit is measured">
+              {[
+                ["01", "Confirm the entity", "Review the category, market, domain, and aliases before scoring."],
+                ["02", "Ask buyer questions", "Use a stable cohort when the category and market remain the same."],
+                ["03", "Inspect the evidence", "See completed responses, mentions, misses, and the source questions."],
+              ].map(([step, title, copy]) => (
+                <div className="evidence-node" key={step}>
+                  <p className="evidence-node__step">{step}</p>
+                  <p className="evidence-node__title">{title}</p>
+                  <p className="evidence-node__copy">{copy}</p>
+                </div>
+              ))}
             </div>
           </section>
         </Reveal>
@@ -441,12 +454,12 @@ export default function Home() {
 
         {/* KPI strip — single card, connected; stacks on mobile to avoid overflow */}
         {audited.length > 0 && (
-          <div className="card overflow-hidden">
+          <div className="card measurement-sheet overflow-hidden">
             <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
               {[
-                { label: "Brands Tracked", value: shown.length.toString(), count: shown.length, suffix: "", sub: `${audited.length} audited` },
-                { label: "Avg AI Visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", count: avg !== null ? avg : null, suffix: "%", sub: "across all brands", colored: avg },
-                { label: "Market Leader", value: best?.name ?? "—", count: null, suffix: "", sub: best ? `${best.visibility_pct?.toFixed(0)}% visibility` : "", colored: best?.visibility_pct },
+                { label: "Brands Tracked", value: shown.length.toString(), count: shown.length, suffix: "", sub: `${audited.length} with evidence` },
+                { label: "Observed visibility", value: avg !== null ? `${avg.toFixed(0)}%` : "—", count: avg !== null ? avg : null, suffix: "%", sub: "across completed audits", colored: avg },
+                { label: "Current leader", value: best?.name ?? "—", count: null, suffix: "", sub: best ? `${best.visibility_pct?.toFixed(0)}% observed visibility` : "", colored: best?.visibility_pct },
               ].map(({ label, value, count, suffix, sub, colored }) => (
                 <div key={label} className="px-6 py-4">
                   <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{label}</p>
@@ -493,12 +506,12 @@ export default function Home() {
               </div>
             ) : audited.length === 0 ? (
               /* Beautiful Visual Onboarding Step Diagram for New Users */
-              <div className="card p-8 space-y-8">
+              <div className="card measurement-sheet p-8 space-y-8">
                 <div className="text-center max-w-lg mx-auto space-y-2.5">
                   <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-dim)] text-[var(--accent-2)]">
                     How MapTheModel works
                   </span>
-                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Audit Your Brand's Mentions Across Top AI Models</h3>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Start with a defensible measurement</h3>
                   <p className="text-slate-500 text-xs leading-relaxed font-semibold">
                     MapTheModel runs about 10 industry-specific buyer questions across four model families to check whether your brand gets recommended.
                   </p>
@@ -507,10 +520,10 @@ export default function Home() {
                 {/* Workflow Diagram */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
                   {[
-                    { step: "01", title: "Configure", desc: "Add your brand name and domain in the sidebar." },
-                    { step: "02", title: "Probing", desc: "MapTheModel generates 10 search-intent prompt questions." },
-                    { step: "03", title: "Evaluate", desc: "Agents query multiple models in parallel." },
-                    { step: "04", title: "Analyze", desc: "Calculate visibility indexes and surface the exact gaps." }
+                    { step: "01", title: "Confirm", desc: "Add the official domain and check the category and market." },
+                    { step: "02", title: "Question", desc: "MapTheModel generates approximately 10 buyer-intent questions." },
+                    { step: "03", title: "Observe", desc: "Multiple model families answer the same question cohort." },
+                    { step: "04", title: "Inspect", desc: "Review mentions, misses, completed responses, and gaps." }
                   ].map((s, idx) => (
                     <div key={idx} className="relative bg-slate-50 p-4.5 rounded-xl border border-slate-200 flex flex-col gap-2">
                       {idx < 3 && (
@@ -646,7 +659,7 @@ export default function Home() {
                               hover-reveal on desktop. */}
                           <button onClick={e => { e.preventDefault(); deleteBrand(b.id); }}
                             disabled={deleting === b.id}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all sm:opacity-0 sm:group-hover:opacity-100"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all sm:opacity-0 sm:group-hover:opacity-100"
                             title={b.is_example ? "Hide this demo brand from your dashboard" : "Delete brand"}
                             aria-label={b.is_example ? `Hide demo brand ${b.name}` : `Delete ${b.name}`}>
                             <Trash2 className="w-3.5 h-3.5" />
@@ -688,9 +701,9 @@ export default function Home() {
                 <div className="w-6 h-6 rounded-md bg-[var(--accent-dim)] flex items-center justify-center">
                   <Building2 className="w-3.5 h-3.5 text-[var(--accent)]" />
                 </div>
-                <h2 className="text-slate-900 font-bold text-sm">Audit a Brand</h2>
+                <h2 className="text-slate-900 font-bold text-sm">Set up a measurement</h2>
               </div>
-              <p className="text-slate-400 text-xs mb-4 pl-8">Add any brand to measure its AI visibility across models.</p>
+              <p className="text-slate-400 text-xs mb-4 pl-8">Confirm what should count before a single model is queried.</p>
 
               {limitReached && !admin && (
                 <div className="border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold p-3 rounded-xl flex flex-col gap-1 mb-4 leading-relaxed">
@@ -799,7 +812,7 @@ export default function Home() {
                   className="w-full btn-primary flex items-center justify-center gap-1.5 py-2.5 mt-1"
                 >
                   <Plus className="w-4 h-4 text-white" />
-                  {adding ? "Running Audit..." : (limitReached && !admin) ? "Limit Reached" : "Add & Run Audit"}
+                  {adding ? "Preparing Audit..." : (limitReached && !admin) ? "Limit Reached" : "Review & Run Audit"}
                 </button>
               </form>
             </div>
@@ -860,7 +873,7 @@ export default function Home() {
                       <button
                         onClick={e => { e.preventDefault(); e.stopPropagation(); deleteBrand(b.id); }}
                         disabled={deleting === b.id}
-                        className="absolute right-2.5 top-2 w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+                        className="absolute right-2.5 top-2 w-9 h-9 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all duration-200"
                         title="Delete brand"
                         aria-label={`Delete ${b.name}`}
                       >

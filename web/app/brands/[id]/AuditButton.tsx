@@ -316,7 +316,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
           questions match what they actually mean. Anchored as a popover below the
           button so it overlays cleanly instead of floating detached in the layout. */}
       {preview && !running && (
-        <div className="absolute right-0 top-full mt-2 z-30 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-4 space-y-3 text-left">
+        <div className="absolute right-0 top-full mt-2 z-30 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-4 space-y-3 text-left measurement-sheet">
           {preview.ambiguous && preview.candidates && preview.candidates.length > 0 ? (
             <>
               <div>
@@ -343,7 +343,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
           ) : preview.found ? (
             <>
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Before we run the audit</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Measurement contract · review before spend</p>
                 <p className="text-sm font-bold text-slate-800 mt-0.5">Category we&apos;ll test</p>
                 <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5">
                   We score whether your brand surfaces for buyers asking about this category. Edit it if it&apos;s not quite right.
@@ -363,7 +363,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
               <input
                 value={aliasesText}
                 onChange={e => setAliasesText(e.target.value)}
-                placeholder="Also count aliases, product names, or legal names"
+                placeholder="Aliases to count (product or legal names)"
                 className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
               />
               {/* Market to measure. Always shown: region changes the result, and when

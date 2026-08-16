@@ -108,9 +108,10 @@ export default function ScoreRing({ pct, target, rank, total }: Props) {
       {/* Stats beside the ring */}
       <div className="flex flex-col gap-3 pt-1 text-center sm:text-left">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">AI Visibility Score</h2>
+          <p className="measurement-label">Observed recommendation rate</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-1">AI Visibility Score</h2>
           <p className="text-slate-500 text-sm mt-1 leading-relaxed max-w-md font-semibold">
-            Your brand appears in <span className={`font-extrabold tabular ${scoreColorClass}`}>{pct.toFixed(0)}</span>% of search completions across tested AI models.
+            Your brand appears in <span className={`font-extrabold tabular ${scoreColorClass}`}>{pct.toFixed(0)}</span>% of completed buyer-question responses across tested AI models.
           </p>
         </div>
         <div className="flex justify-center sm:justify-start">

@@ -3,10 +3,8 @@
 @tailwind utilities;
 
 :root {
-  /* Base — porcelain. A faint cool-warm off-white (not pure #fff): keeps the
-     "expensive editorial" surface while reading as a credible data product, not a
-     cheap AI-generated white site. Modelled on the Valmax enterprise palette. */
-  --bg: #f6f7f9;
+  /* A light technical workspace: the product is evidence, not decoration. */
+  --bg: #edf2f7;
   --surface: rgba(255, 255, 255, 0.96);
   --surface-solid: #ffffff;
   --surface-2: rgba(241, 243, 246, 0.92);
@@ -23,11 +21,11 @@
 
   /* Accent — deep editorial blue → indigo. Reads as trust · intelligence · data,
      the right signal for an AI audit a buyer must believe. */
-  --accent: #1863dc;
-  --accent-hover: #2f74e8;
-  --accent-2: #0f4aad;
-  --accent-dim: rgba(24, 99, 220, 0.09);
-  --accent-glow: rgba(24, 99, 220, 0.26);
+  --accent: #3155e7;
+  --accent-hover: #4568ee;
+  --accent-2: #193aa9;
+  --accent-dim: rgba(49, 85, 231, 0.09);
+  --accent-glow: rgba(49, 85, 231, 0.22);
 
   /* Semantic tones — muted, confident (no neon), tuned to sit beside the blue. */
   --green: #1f8a5b;
@@ -57,17 +55,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Tactile paper grain — a ~3% noise overlay over the ivory bg. Makes the surface
-   feel printed/physical rather than a flat digital white. pointer-events:none so it
-   never intercepts clicks; fixed so it doesn't scroll. */
+/* Fine technical grid gives wide screens structure without decorative motion. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.45;
+  background-image: linear-gradient(rgba(42, 67, 94, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(42, 67, 94, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 /* App content sits above the grain. */
 body > * { position: relative; z-index: 1; }
@@ -129,26 +126,25 @@ textarea:focus-visible {
 .score-moderate { color: var(--amber); text-shadow: 0 0 12px var(--amber-glow); }
 .score-weak { color: var(--red); text-shadow: 0 0 12px var(--red-glow); }
 
-/* Premium Card Elements — warm white on ivory, soft layered warm shadow. */
+/* Cards read as measurement sheets, not floating marketing tiles. */
 .card {
   background: #ffffff;
-  border: 1px solid #e8eaf0;
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(20, 23, 33, 0.04), 0 6px 20px -8px rgba(20, 23, 33, 0.08);
-  transition: border-color 0.18s ease, box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  box-shadow: 0 1px 1px rgba(20, 35, 52, 0.03), 0 8px 24px -18px rgba(20, 35, 52, 0.22);
+  transition: border-color 0.18s ease, box-shadow 0.2s ease;
 }
 .card:hover {
-  border-color: #d8dce8;
-  box-shadow: 0 2px 6px rgba(20, 23, 33, 0.05), 0 18px 40px -12px rgba(24, 99, 220, 0.14);
-  transform: translateY(-2px);
+  border-color: #c7d3e1;
+  box-shadow: 0 10px 28px -20px rgba(20, 35, 52, 0.28);
 }
 
 /* CTA card — brass border + warm glow draws the eye to the primary action */
 .card-cta {
   background: #ffffff;
-  border: 1.5px solid var(--accent);
-  border-radius: 14px;
-  box-shadow: 0 2px 10px var(--accent-glow), 0 1px 3px rgba(60, 50, 35, 0.06);
+  border: 1px solid #b9c9f7;
+  border-radius: 12px;
+  box-shadow: inset 3px 0 0 var(--accent), 0 10px 28px -20px var(--accent-glow);
 }
 
 .card-elevated {
@@ -160,7 +156,7 @@ textarea:focus-visible {
 
 /* Premium buttons with micro-animations & spring-like click scaling */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent-2) 100%);
+  background: var(--accent);
   color: #ffffff;
   border: none;
   border-radius: 10px;
@@ -169,15 +165,14 @@ textarea:focus-visible {
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
-  box-shadow: 0 4px 14px var(--accent-glow);
+  box-shadow: 0 4px 12px var(--accent-glow);
   transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
               transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
               filter 0.2s ease;
 }
 .btn-primary:hover:not(:disabled) {
-  filter: brightness(1.06);
-  box-shadow: 0 6px 22px var(--accent-glow);
-  transform: translateY(-1px);
+  background: var(--accent-2);
+  box-shadow: 0 6px 18px var(--accent-glow);
 }
 .btn-primary:active:not(:disabled) {
   transform: scale(0.96) translateY(0);
@@ -271,37 +266,51 @@ h1, h2, h3, h4 {
 .text-accent { color: var(--accent); }
 .text-accent-2 { color: var(--accent-2); }
 
-/* Premium hero glow — a soft radial bloom of the accent behind the headline, plus a
-   second faint one, giving the hero depth without a flat background. Slowly breathes. */
-.hero-glow { position: relative; isolation: isolate; }
-.hero-glow::before {
+/* Signature instrument panel used by the dashboard and measurement surfaces. */
+.instrument-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #d4dfeb;
+  border-radius: 16px;
+  background: linear-gradient(118deg, #ffffff 0%, #f7f9fc 62%, #e9efff 100%);
+  padding: clamp(1.75rem, 5vw, 4.25rem);
+}
+.instrument-hero::after {
   content: "";
   position: absolute;
-  left: 50%; top: -10%;
-  width: 680px; height: 420px;
-  max-width: 120vw;
-  transform: translateX(-50%);
-  background:
-    radial-gradient(closest-side, rgba(24, 99, 220, 0.13), transparent 70%),
-    radial-gradient(closest-side at 30% 40%, rgba(91, 69, 224, 0.10), transparent 70%);
-  filter: blur(8px);
-  z-index: -1;
+  width: 24rem;
+  height: 24rem;
+  right: -8rem;
+  top: -14rem;
+  border: 1px solid rgba(49, 85, 231, 0.16);
+  border-radius: 50%;
+  box-shadow: 0 0 0 32px rgba(49, 85, 231, 0.035), 0 0 0 64px rgba(49, 85, 231, 0.025);
   pointer-events: none;
-  animation: heroBreathe 9s ease-in-out infinite;
 }
-@keyframes heroBreathe {
-  0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
-  50%       { opacity: 1; transform: translateX(-50%) scale(1.06); }
+.instrument-hero > * { position: relative; z-index: 1; }
+.evidence-ribbon {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1.5rem;
+  border: 1px solid #dce5ef;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
 }
-@media (prefers-reduced-motion: reduce) {
-  .hero-glow::before { animation: none; }
+.evidence-node { padding: 0.9rem 1rem; min-width: 0; }
+.evidence-node + .evidence-node { border-left: 1px solid #dce5ef; }
+.evidence-node__step { color: var(--accent); font: 700 10px/1 var(--font-inter), sans-serif; letter-spacing: 0.12em; }
+.evidence-node__title { color: #1a2a3b; font: 700 0.79rem/1.35 var(--font-inter), sans-serif; margin-top: 0.42rem; }
+.evidence-node__copy { color: #607386; font: 500 0.7rem/1.45 var(--font-inter), sans-serif; margin-top: 0.2rem; }
+.measurement-sheet { border-top: 3px solid var(--accent); }
+.measurement-label { color: #65778a; font: 700 10px/1.2 var(--font-inter), sans-serif; letter-spacing: 0.12em; text-transform: uppercase; }
+@media (max-width: 640px) {
+  .instrument-hero { border-radius: 12px; }
+  .evidence-ribbon { grid-template-columns: 1fr; }
+  .evidence-node + .evidence-node { border-left: 0; border-top: 1px solid #dce5ef; }
 }
 
-/* Gradient text for the accent word in the hero (premium typographic touch). */
 .text-gradient {
-  background: linear-gradient(120deg, var(--accent), var(--accent-2) 60%, #5b45e0);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
+  color: var(--accent-2);
 }

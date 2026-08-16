@@ -272,16 +272,16 @@ export default function BrandPage() {
         ) : (
           <div className="space-y-6">
             <Reveal>
-            <div className="card p-6">
+            <div className="card measurement-sheet p-6">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
                 <div className="flex flex-col items-center md:items-start gap-2">
                   <ScoreRing pct={latest.visibility_pct ?? 0} rank={rank} total={totalBrands > 1 ? totalBrands : undefined} />
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-3 py-1"
                     title="The market this score was framed for. AI models are trained on globally-skewed data, so a regional score reflects how the questions were asked, not a guarantee of region-specific recall.">
-                    Scored for: {latest.region ?? "Global"}
+                    Measurement market: {latest.region ?? "Global"}
                   </span>
                   <span className="text-[11px] font-bold text-slate-500">
-                    {measurement.completed_responses ?? "—"}/{measurement.expected_responses ?? "—"} model responses completed
+                    Evidence coverage: {measurement.completed_responses ?? "—"}/{measurement.expected_responses ?? "—"} model responses completed
                     {measurement.cohort_reused && " · same question set"}
                   </span>
                 </div>
