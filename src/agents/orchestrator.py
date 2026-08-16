@@ -171,9 +171,18 @@ async def _tavily_search(name: str, domain: str | None, industry: str | None) ->
         if r.status_code == 200:
             data = r.json()
             answer = data.get("answer", "")
-            snippets = " | ".join(res.get("content", "")[:300] for res in data.get("results", [])[:3])
+            # Drop results from sites that write ABOUT companies. This context is what
+            # category inference reads, and a Yahoo Finance article about PEEC AI made
+            # the category come back "finance". Fall back to the unfiltered results if
+            # filtering leaves nothing, so an obscure brand still gets some context.
+            results = data.get("results", [])
+            company_results = [res for res in results
+                               if _is_company_site(_registrable_domain(res.get("url", "")))]
+            chosen = company_results or results
+            snippets = " | ".join(res.get("content", "")[:300] for res in chosen[:3])
             summary = f"{answer} {snippets}".strip()[:1200]
-            log.info("web_search_ok", brand=name, chars=len(summary))
+            log.info("web_search_ok", brand=name, chars=len(summary),
+                     filtered=len(results) - len(company_results))
             return summary
     except Exception as e:
         log.warning("web_search_failed", brand=name, error=str(e))
@@ -205,13 +214,27 @@ _NON_COMPANY_DOMAINS: frozenset[str] = frozenset({
     "trustpilot.com", "amazon.com", "ebay.com", "medium.com", "github.com",
     "zoominfo.com", "dnb.com", "pitchbook.com", "owler.com", "companieshouse.gov.uk",
     "northdata.com", "kununu.com", "xing.com", "yellowpages.com", "bbb.org",
+    # News and market-data sites. finance.yahoo.com is why the name check below exists:
+    # an article about PEEC AI became a candidate and the audit read Yahoo Finance's
+    # homepage, inferring the category "finance".
+    "yahoo.com", "google.com", "bing.com", "techcrunch.com", "forbes.com",
+    "reuters.com", "cnbc.com", "businesswire.com", "prnewswire.com", "sifted.eu",
+    "wsj.com", "ft.com", "theverge.com", "wired.com", "producthunt.com",
+    "g2.com", "capterra.com", "getapp.com", "softwareadvice.com", "gartner.com",
 })
 
 
-def _is_company_site(domain: str) -> bool:
+def _is_company_site(domain: str, brand_name: str | None = None) -> bool:
     """True if the domain could plausibly BE a company rather than a page about one.
-    Checks the registrable domain and its parent (so 'en.wikipedia.org' is rejected via
-    'wikipedia.org'), since _registrable_domain keeps subdomains."""
+
+    Two rules, because a deny-list alone can't work. It only catches sites someone
+    thought to list: 'finance.yahoo.com' wasn't on it, so a Yahoo Finance article about
+    PEEC AI became a selectable candidate and auditing it inferred the category
+    "finance". Any news or data site not yet listed fails the same way.
+
+    So the deny-list handles the known offenders, and when we know the brand name, a
+    site whose domain doesn't contain it is treated as writing ABOUT the company rather
+    than being it. That generalises to aggregators nobody has listed."""
     if not domain:
         return False
     parts = domain.split(".")
@@ -219,27 +242,42 @@ def _is_company_site(domain: str) -> bool:
     for i in range(len(parts) - 1):
         if ".".join(parts[i:]) in _NON_COMPANY_DOMAINS:
             return False
+    if brand_name:
+        # Compare against the domain with separators dropped, so "PEEC AI" matches
+        # peecai.com and "Map The Model" matches mapthemodel.com. Diacritic-folded to
+        # match _brand_matches. A 1-2 char name collides with too much to be a signal.
+        name_key = re.sub(r"[^a-z0-9]", "", _fold(brand_name))
+        host_key = re.sub(r"[^a-z0-9]", "", _fold(domain))
+        if len(name_key) > 2 and name_key not in host_key:
+            return False
     return True
 
 
-def group_candidates(results: list[dict]) -> list[dict]:
+def group_candidates(results: list[dict], brand_name: str | None = None) -> list[dict]:
     """Group raw search results by registrable domain into distinct entity candidates.
     Each result is {url, title, content}. Returns one candidate per domain:
       {domain, title, description}. Deterministic — no LLM. Used to decide if a
     name-only search returned ONE company or several same-named ones (ambiguous)."""
     by_domain: dict[str, dict] = {}
+    fallback: dict[str, dict] = {}
     for r in results:
         dom = _registrable_domain(r.get("url", ""))
-        if not dom or dom in by_domain:
+        if not dom or dom in by_domain or dom in fallback:
             continue  # first result per domain wins (search is ranked)
-        if not _is_company_site(dom):
-            continue  # a page ABOUT the company, not the company's own site
-        by_domain[dom] = {
+        entry = {
             "domain": dom,
             "title": (r.get("title") or dom).strip()[:80],
             "description": (r.get("content") or "").strip()[:160],
         }
-    return list(by_domain.values())
+        if _is_company_site(dom, brand_name):
+            by_domain[dom] = entry
+        elif _is_company_site(dom):
+            # Passes the deny-list but its domain doesn't carry the brand name. Plenty
+            # of real companies are like that (a rebrand, an acronym, a parent-company
+            # domain), so keep it as a fallback rather than dropping it — but only show
+            # it when the name-matching pass found nothing at all.
+            fallback[dom] = entry
+    return list(by_domain.values()) or list(fallback.values())
 
 
 async def _tavily_candidates(name: str, industry: str | None) -> list[dict]:
@@ -258,7 +296,7 @@ async def _tavily_candidates(name: str, industry: str | None) -> list[dict]:
                       "max_results": 6},
             )
         if r.status_code == 200:
-            return group_candidates(r.json().get("results", []))
+            return group_candidates(r.json().get("results", []), brand_name=name)
     except Exception as e:
         log.warning("candidate_search_failed", brand=name, error=str(e))
     return []

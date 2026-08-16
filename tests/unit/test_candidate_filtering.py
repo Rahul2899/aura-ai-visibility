@@ -55,6 +55,37 @@ def test_subdomains_of_aggregators_are_caught():
     assert not _is_company_site("de.linkedin.com")
 
 
+def test_news_site_about_the_brand_is_not_the_brand():
+    """The real regression: a Yahoo Finance article about PEEC AI passed the deny-list
+    (yahoo.com wasn't on it), was picked from the candidate list, and the audit scraped
+    finance.yahoo.com — so the inferred category came back "finance"."""
+    results = [
+        _result("https://finance.yahoo.com/news/peec-ai-raises", "PEEC AI raises funding"),
+        _result("https://peec.ai/", "PEEC AI"),
+        _result("https://techcrunch.com/2026/peec-ai", "PEEC AI launches"),
+    ]
+    domains = [c["domain"] for c in group_candidates(results, brand_name="peecai")]
+    assert domains == ["peec.ai"]
+
+
+def test_name_match_generalises_beyond_the_deny_list():
+    """A deny-list only catches sites someone listed. When the brand name is known, a
+    domain that doesn't carry it is treated as writing about the company."""
+    assert not _is_company_site("someblog.example", brand_name="peecai")
+    assert _is_company_site("peec.ai", brand_name="peecai")
+
+
+def test_unlisted_site_survives_when_nothing_matches_the_name():
+    """Real companies do have domains without their name (rebrands, acronyms, parent
+    companies). Those must not vanish — they're kept as a fallback when the name-matching
+    pass finds nothing."""
+    results = [
+        _result("https://parentcorp.com/", "Obscure Co - a ParentCorp brand"),
+    ]
+    domains = [c["domain"] for c in group_candidates(results, brand_name="ObscureCo")]
+    assert domains == ["parentcorp.com"]
+
+
 def test_company_subdomains_are_kept():
     """Guard against matching too broadly — a brand's own subdomain is still the brand,
     and a multi-part ccTLD must not be mistaken for an aggregator."""
