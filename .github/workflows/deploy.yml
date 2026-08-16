@@ -1,7 +1,7 @@
 name: Test & Deploy
 
 # Manual trigger only for now. After the first manual deploy (DEPLOY.md) succeeds
-# and the EC2_* secrets are set, change this to:
+# and the DEPLOY_* secrets are set, change this to:
 #   on:
 #     push:
 #       branches: [master]
@@ -42,9 +42,9 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             cd ~/aura-ai-visibility
             ./deploy.sh

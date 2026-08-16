@@ -7,15 +7,14 @@ import unicodedata
 import structlog
 from datetime import datetime
 
-import boto3
 import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Brand, Insight, ProbePerformance, ApiCall, Prompt, Run, Mention, SentimentEnum
-from src.llm.client import OpenRouterClient, DEFAULT_MODELS
-from src.llm.bedrock_client import BedrockClient, BEDROCK_MODELS
+from src.llm.client import OpenRouterClient, DEFAULT_MODELS, ORCHESTRATOR_MODEL, QUESTION_MODEL
+from src.llm.bedrock_client import ConverseShim
 from src.llm.extractor import extract_mentions
 
 log = structlog.get_logger()
@@ -324,26 +323,23 @@ def _safe_https_url(domain: str) -> str | None:
 
     return f"https://{domain}"
 
-# Two-phase: a stronger model writes the probe questions (where human-buyer framing
-# matters most — one call, so the cost is contained), a fast/cheap model does the
-# analysis/summary in phase B.
-QUESTION_MODEL = "eu.anthropic.claude-sonnet-4-6"
-ORCHESTRATOR_MODEL = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"  # phase B (analysis)
-MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS] + [(m, "bedrock") for m in BEDROCK_MODELS]
+# Two-phase: one model writes the probe questions (where human-buyer framing matters
+# most), the same fast model does the analysis/summary in phase B. Both live in
+# src/llm/client.py so the model lineup is configured in exactly one place.
+MODEL_CONFIGS = [(m, "openrouter") for m in DEFAULT_MODELS]
 
 # Friendly names for the live activity feed. .get fallback means a model swap can't crash the feed.
 MODEL_DISPLAY = {
-    "eu.anthropic.claude-sonnet-4-6": "Claude Sonnet 4.6",
-    "eu.amazon.nova-pro-v1:0": "Nova Pro",
-    "qwen.qwen3-32b-v1:0": "Qwen3 32B",
-    "nvidia.nemotron-super-3-120b": "NVIDIA Nemotron",
-    # orchestrator/analysis model (still Haiku) — kept here for friendly logs
-    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "Claude Haiku 4.5",
+    "deepseek/deepseek-chat-v3.1:free": "DeepSeek V3.1",
+    "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B",
+    "qwen/qwen3-235b-a22b:free": "Qwen3 235B",
+    "mistralai/mistral-small-3.2-24b-instruct:free": "Mistral Small 3.2",
 }
 
 
 def friendly(model: str) -> str:
-    return MODEL_DISPLAY.get(model, model.split(".")[-1].split("-")[0].title())
+    # Fallback for an unmapped model: "vendor/name-1.2:free" -> "Name".
+    return MODEL_DISPLAY.get(model, model.split("/")[-1].split(":")[0].split("-")[0].title())
 
 
 def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
@@ -359,12 +355,9 @@ def compute_visibility(model_hits: dict[str, list[bool]]) -> float | None:
 
 
 def _bedrock_client():
-    # On EC2 with IAM role: no explicit keys needed — boto3 uses instance metadata.
-    kwargs = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
-    if os.environ.get("AWS_ACCESS_KEY_ID"):
-        kwargs["aws_access_key_id"] = os.environ.get("AWS_ACCESS_KEY_ID")
-        kwargs["aws_secret_access_key"] = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    return boto3.client("bedrock-runtime", **kwargs)
+    # Name kept so the ~10 call sites below don't churn. Returns the OpenRouter-backed
+    # shim exposing the same .converse() shape — no AWS, no boto3, no instance role.
+    return ConverseShim()
 
 
 def _fold(s: str) -> str:
@@ -392,7 +385,7 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
     """Run one model. Returns a dict with `failed` flag so failed calls are excluded from the
     score instead of being counted as a real non-mention (which would corrupt visibility %).
     Uses the structured extractor — not a naive string match — to prevent hallucination false positives."""
-    client = BedrockClient() if provider == "bedrock" else OpenRouterClient()
+    client = OpenRouterClient()
     try:
         result = await client.complete(model=model, messages=[{"role": "user", "content": prompt_text}])
         extraction = await extract_mentions(client, model, result["text"])
@@ -429,9 +422,10 @@ async def _probe_one_model(provider: str, model: str, prompt_text: str, target_b
 
 
 # Bounds the TOTAL number of in-flight model calls across all probes running
-# concurrently. With ~10 probes x 4 models = ~40 calls, a cap of 12 keeps Bedrock
-# from throttling while still collapsing the old sequential ~170s into one parallel wave.
-_PROBE_CALL_SEMAPHORE = asyncio.Semaphore(12)
+# concurrently. With ~10 probes x 4 models = ~40 calls, a cap of 6 keeps the OpenRouter
+# free tier from rate-limiting while still running probes as one parallel wave.
+# ponytail: fixed cap; make it env-tunable if the account moves off the free tier.
+_PROBE_CALL_SEMAPHORE = asyncio.Semaphore(6)
 
 
 async def _probe_all_models(prompt_text: str, target_brand: str, on_event=None) -> list[dict]:
@@ -453,7 +447,9 @@ def _persist_probe(session: AsyncSession, brand_id: int, prompt_text: str, resul
     for r in results:
         tokens_in = r.get("tokens_in") or 0
         tokens_out = r.get("tokens_out") or 0
-        cost = (tokens_in * 0.00025 + tokens_out * 0.00125) / 1000 if r["provider"] == "bedrock" else 0.0
+        # The panel runs OpenRouter `:free` models, so spend is genuinely 0. Tokens are
+        # still recorded above — if a paid model is ever added, price it here per-model.
+        cost = 0.0
         session.add(ApiCall(model=r["model"], provider=r["provider"], latency_ms=r["latency_ms"],
                             tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost))
         if not r["failed"]:

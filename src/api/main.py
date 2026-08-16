@@ -17,8 +17,10 @@ from src.models import Brand, Insight
 
 log = structlog.get_logger()
 
-_REQUIRED_VARS = ["DATABASE_URL", "ADMIN_KEY"]
-_OPTIONAL_WARN = ["AWS_ACCESS_KEY_ID", "OPENROUTER_API_KEY", "TAVILY_API_KEY"]
+# OPENROUTER_API_KEY is required: every probe and analysis call goes through it, so a
+# missing key means every audit fails at runtime. Fail loudly at boot instead.
+_REQUIRED_VARS = ["DATABASE_URL", "ADMIN_KEY", "OPENROUTER_API_KEY"]
+_OPTIONAL_WARN = ["TAVILY_API_KEY"]
 
 
 def _check_env():
@@ -113,10 +115,10 @@ async def lifespan(app: FastAPI):
 
 
 def _autoaudit_enabled() -> bool:
-    # Needs Bedrock creds (or an EC2 IAM role) and must be explicitly allowed.
+    # Needs an OpenRouter key and must be explicitly allowed.
     if os.environ.get("AUTO_SEED_AUDITS", "true").lower() in ("0", "false", "no"):
         return False
-    return bool(os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_REGION"))
+    return bool(os.environ.get("OPENROUTER_API_KEY"))
 
 
 async def _seed_example_audits() -> None:

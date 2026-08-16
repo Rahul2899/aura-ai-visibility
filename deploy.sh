@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Aura AI — deploy/update on the EC2 box. Run this ON the server (it does not SSH
+# Aura AI — deploy/update on the VM. Run this ON the server (it does not SSH
 # for you). Idempotent: pulls latest master, rebuilds, migrates, smoke-tests.
 #
-#   ssh ubuntu@<EC2_IP>
+#   gcloud compute ssh aura --zone=us-central1-a
 #   cd ~/aura-ai-visibility && ./deploy.sh
 #
 # Prereqs on the box (one-time): docker + docker compose installed, repo cloned,

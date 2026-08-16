@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Brand, Prompt, Run, Mention, ApiCall
 from src.llm.client import OpenRouterClient, DEFAULT_MODELS
-from src.llm.bedrock_client import BedrockClient, BEDROCK_MODELS
 from src.llm.extractor import extract_mentions
 
 log = structlog.get_logger()
@@ -22,8 +21,6 @@ def _content_hash(prompt_text: str, model: str, run_date: str) -> str:
 
 
 def _get_client(provider: str):
-    if provider == "bedrock":
-        return BedrockClient()
     return OpenRouterClient()
 
 
@@ -114,10 +111,7 @@ async def run_audit(session: AsyncSession, brand_id: int) -> None:
     if not prompts:
         raise ValueError(f"No prompts found for brand {brand_id}")
 
-    model_configs = (
-        [(m, "openrouter") for m in DEFAULT_MODELS]
-        + [(m, "bedrock") for m in BEDROCK_MODELS]
-    )
+    model_configs = [(m, "openrouter") for m in DEFAULT_MODELS]
 
     semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)
     tasks = [

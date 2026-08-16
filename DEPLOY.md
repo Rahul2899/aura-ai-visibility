@@ -1,48 +1,38 @@
-# Aura AI — Production Deploy Runbook (EC2)
+# Aura AI — Production Deploy Runbook (GCP Compute Engine)
 
-Manual, watched cutover for the first deploy. Once this succeeds, the GitHub
-Actions workflow (`.github/workflows/deploy.yml`) can automate it.
+Manual, watched cutover. Once this succeeds, the GitHub Actions workflow
+(`.github/workflows/deploy.yml`) can automate it.
 
-**Infra:** EC2 t2.micro, Ubuntu 22.04, Docker Compose. DuckDNS
-`your-app.duckdns.org` → Elastic IP. Caddy is the only public entry
-(`:80` + `:443`); `app` and `db` are internal-only.
+**Infra:** GCP `e2-micro` (always-free tier), Ubuntu 22.04, Docker Compose.
+DuckDNS `your-app.duckdns.org` → static external IP. Caddy is the only public
+entry (`:80` + `:443`); `app` and `db` are internal-only.
+
+**No cloud provider SDK.** The app needs Postgres (in-compose) and an OpenRouter
+API key. Nothing else. It runs on any box with Docker — GCP is a host, not a
+dependency, so a future move costs a `docker compose up`.
 
 ---
 
-## 0. THE GATE — rotate secrets first (do before anything touches AWS)
+## 0. THE GATE — secrets first
 
-Rotate all secrets before the first deploy — never reuse local-dev values in production. Generate fresh AWS/OpenRouter/admin/DB credentials.
+Generate fresh values. Never reuse local-dev secrets in production.
 
-- **AWS Bedrock — preferred: IAM role, no keys.**
-  1. Create an IAM role (e.g. `aura-ec2-bedrock`) with a least-privilege policy:
-     `bedrock:InvokeModel` on the model/inference-profile ARNs for the lineup.
-     Probe models: Claude Sonnet 4.6, Nova Pro, Qwen3 32B, NVIDIA Nemotron Super.
-     Also enable Claude Haiku 4.5 (analysis/orchestrator model). All in `eu-central-1`.
-     NOTE: the model IDs use the `eu.` cross-region-inference prefix — the EC2
-     region MUST be `eu-central-1` or every probe fails. The exact IDs are in
-     `src/llm/bedrock_client.py` (BEDROCK_MODELS) + `QUESTION_MODEL`/`ORCHESTRATOR_MODEL`
-     in `src/agents/orchestrator.py`. Enable these models in the Frankfurt Bedrock
-     console first.
-  2. Attach it to the EC2 instance (Actions → Security → Modify IAM role).
-  3. **Leave `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` OUT of `.env`.** boto3
-     (`src/agents/orchestrator.py` `_bedrock_client`) auto-uses the instance role.
-  4. Deactivate the previously-exposed AWS access key in IAM (the one currently
-     in your local `.env` / `~/.envrc`).
-  - *Fallback if you can't use a role:* create fresh keys, put them in `.env`,
-    deactivate the old one.
-- **OpenRouter:** unused in prod (`DEFAULT_MODELS=[]`). Omit the key, or rotate it.
-- **ADMIN_KEY:** generate a NEW random value (e.g. `openssl rand -base64 32`).
-- **POSTGRES_PASSWORD:** set a strong value **before the first `up`** (Postgres
+- **OPENROUTER_API_KEY** — required. Get one at https://openrouter.ai/keys.
+  The app refuses to boot without it (`_REQUIRED_VARS` in `src/api/main.py`).
+  The model panel lives in `DEFAULT_MODELS` (`src/llm/client.py`) and uses `:free`
+  models — no card needed.
+  **Quota:** free tier is ~50 requests/day. One audit ≈ 50 model calls (~10 probes
+  × 4 models + orchestration), so the free tier is about **one audit per day**.
+  Adding any credit to the OpenRouter account lifts it to ~1000/day (~20 audits).
+  Size `GLOBAL_DAILY_AUDIT_CAP` to match — see section 1.
+- **ADMIN_KEY** — generate a new random value: `openssl rand -base64 32`
+- **POSTGRES_PASSWORD** — set a strong value **before the first `up`** (Postgres
   bakes it on first volume init; changing later needs a volume wipe).
 
-## 1. EC2 `.env` (on the box, never committed)
+## 1. VM `.env` (on the box, never committed)
 
 ```env
-# AWS — omit the two keys if using an IAM role (preferred)
-AWS_REGION=eu-central-1   # must match the eu. model IDs in the code
-# AWS_ACCESS_KEY_ID=...        # only if NOT using an instance role
-# AWS_SECRET_ACCESS_KEY=...
-
+OPENROUTER_API_KEY=sk-or-...
 ADMIN_KEY=<new-random-value>
 
 # Postgres
@@ -55,38 +45,82 @@ POSTGRES_DB=peec
 SITE_ADDRESS=your-app.duckdns.org
 ALLOWED_ORIGINS=https://your-app.duckdns.org
 NEXT_PUBLIC_API_URL=/api
-AUTO_SEED_AUDITS=true
+
+# Free tier ≈ 1 audit/day. Raise to ~20 only after adding OpenRouter credit.
+GLOBAL_DAILY_AUDIT_CAP=1
+# Seeding burns a full day of free quota. Leave false unless you want demo data.
+AUTO_SEED_AUDITS=false
 ```
 
-## 2. EC2 security group
+## 2. Create the VM
 
-Inbound: **:80** and **:443** from anywhere (80 is needed for the ACME challenge
-and the http→https redirect), **:22** from your IP only. Nothing else — `:8000`
-and `:5432` stay closed (Caddy is the only entry).
-
-## 3. First deploy
+Always-free tier requires `e2-micro` in **us-west1, us-central1, or us-east1**
+(any other region bills). Standard persistent disk, ≤30GB.
 
 ```bash
-ssh ubuntu@<EC2_IP>
-# one-time: git clone https://github.com/Rahul2899/aura-ai-visibility.git
+gcloud compute instances create aura \
+  --machine-type=e2-micro \
+  --zone=us-central1-a \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud \
+  --boot-disk-size=30GB --boot-disk-type=pd-standard \
+  --tags=http-server,https-server
+
+# Static IP so DuckDNS doesn't drift on reboot
+gcloud compute addresses create aura-ip --region=us-central1
+```
+
+Firewall — the `http-server`/`https-server` tags open :80/:443. SSH goes through
+`gcloud compute ssh` (IAP), so **no :22 rule is needed**. Confirm nothing else is
+open: `:8000` and `:5432` must stay closed — Caddy is the only entry.
+
+## 3. Prepare the box — swap FIRST
+
+`e2-micro` has **1GB RAM**. The old t2.micro (also 1GB) OOMed under
+4 concurrent audits + Next.js + Postgres. Two mitigations, both required:
+
+**a) Add swap before anything else:**
+```bash
+gcloud compute ssh aura --zone=us-central1-a
+
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h   # confirm 2GB swap
+```
+
+**b) Don't build the Next.js image on the box** — the build is the memory spike,
+not the runtime. Build locally, push to Artifact Registry, and have the VM pull.
+If you skip this, expect the `web` build to OOM.
+
+Then Docker:
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+sudo usermod -aG docker $USER && exec su -l $USER
+```
+
+## 4. First deploy
+
+```bash
+git clone https://github.com/Rahul2899/aura-ai-visibility.git
 cd aura-ai-visibility
 # create/verify .env per section 1
 ./deploy.sh
 ```
 
-`deploy.sh` pulls master, builds, starts, and smoke-tests. Caddy will fetch a
-Let's Encrypt cert automatically on first start (needs DNS pointing at the box
-and :80/:443 open).
+Point DuckDNS at the static IP **before** starting — Caddy needs working DNS and
+open :80 to complete the ACME challenge for its Let's Encrypt cert.
 
-## 4. Verify (browser + shell)
+## 5. Verify
 
 1. `https://your-app.duckdns.org` loads with a valid cert; `http://` redirects.
-2. The 4 example brands show with real scores.
-3. Add a brand → audit completes, live feed streams, 4 models respond, 0 Bedrock errors.
-4. `https://…/?admin=<NEW_ADMIN_KEY>` → "ADMIN · unlimited"; create a brand works.
-5. From your laptop: `curl http://<EC2_IP>:8000/` and `:5432` → refused/timeout.
+2. Add a brand → audit completes, live feed streams, all 4 models respond, 0 errors.
+3. `https://…/?admin=<ADMIN_KEY>` → "ADMIN · unlimited"; creating a brand works.
+4. From your laptop: `curl http://<VM_IP>:8000/` and `:5432` → refused/timeout.
+5. `docker compose logs app | grep -i "rate_limited\|error"` → check whether the
+   free tier is throttling. Frequent `rate_limited` means add OpenRouter credit
+   or lower `GLOBAL_DAILY_AUDIT_CAP`.
 
-## 5. Rollback
+## 6. Rollback
 
 ```bash
 git log --oneline -5        # find the previous good commit
@@ -95,6 +129,9 @@ docker compose up -d --build
 ```
 
 ## Notes
-- t2.micro is tight for 4 concurrent Bedrock audits + Next.js + Postgres. If the
-  box OOMs, resize to t3.small — it's a resource issue, not a code issue.
 - Certs persist in the `caddy_data` volume across redeploys (avoids LE rate limits).
+- Free tier covers **one** `e2-micro` per billing account. A second VM bills.
+- Set a **$1 budget alert** (Billing → Budgets & alerts) as a backstop — the
+  always-free tier has no hard cutoff, so a misconfigured resource bills silently.
+- `_PROBE_CALL_SEMAPHORE` (`src/agents/orchestrator.py`) caps concurrent model
+  calls at 6 to stay under free-tier rate limits. Raise it only with paid credit.

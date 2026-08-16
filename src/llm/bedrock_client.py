@@ -1,90 +1,89 @@
-import asyncio
+"""Compatibility shim kept only so the orchestrator's existing call sites keep working.
+
+The app used to call AWS Bedrock's `client.converse(...)` directly in five places.
+Rather than rewrite those five call sites (and their response parsing), this module
+re-implements that exact request/response *shape* on top of OpenRouter. Nothing here
+talks to AWS — boto3 is gone.
+
+`converse()` is synchronous by design: the orchestrator wraps every call in
+`asyncio.to_thread(...)`, so it must block, like the boto3 method it replaces.
+"""
+
 import os
 import time
+
+import httpx
 import structlog
 from dotenv import load_dotenv
+
+from src.llm.client import OPENROUTER_BASE
 
 load_dotenv()
 log = structlog.get_logger()
 
-# Frankfurt (eu-central-1) lineup — all verified callable in this account via
-# list_inference_profiles + a live converse smoke test. Newest available, 3 vendors.
-# If you move regions, the eu. prefix must change to match (us./global.).
-# Four DIFFERENT model families (Anthropic, Amazon, Qwen, NVIDIA) for a credible
-# "cross-model visibility" measurement. All verified callable + parseable + non-
-# throttling in eu-central-1. Qwen/Nemotron are cheap open-weight models, which also
-# keeps per-audit cost down. Avoided: Mistral Pixtral Large — the EU region's only
-# Mistral, but it terminal-throttles ~50%+ under real audit load (confirmed 2026-06-17:
-# most calls exhaust all 4 retries, 7-11s latency), so it adds no signal and slows the
-# whole panel. MiniMax & gpt-oss respond in a schema our converse parser can't read.
-BEDROCK_MODELS = [
-    "eu.anthropic.claude-sonnet-4-6",     # Anthropic
-    "eu.amazon.nova-pro-v1:0",            # Amazon
-    "qwen.qwen3-32b-v1:0",               # Qwen / Alibaba
-    "nvidia.nemotron-super-3-120b",      # NVIDIA
-]
 
+class ConverseShim:
+    """Exposes `.converse(modelId=..., system=[...], messages=[...], inferenceConfig={...})`
+    and returns `{"output": {"message": {"content": [{"text": ...}]}}, "usage": {...}}` —
+    the Bedrock wire shape the orchestrator already parses."""
 
-def _make_body(model: str, messages: list[dict]) -> dict:
-    """Convert OpenAI-style messages to Bedrock converse format."""
-    system_msgs = [m["content"] for m in messages if m["role"] == "system"]
-    user_msgs = [m for m in messages if m["role"] != "system"]
-
-    body: dict = {
-        "messages": [{"role": m["role"], "content": [{"text": m["content"]}]} for m in user_msgs],
-        "inferenceConfig": {"maxTokens": 768, "temperature": 0.7},
-    }
-    if system_msgs:
-        body["system"] = [{"text": s} for s in system_msgs]
-    return body
-
-
-class BedrockClient:
     def __init__(self):
-        import boto3
-        # On EC2: attach an IAM role with BedrockFullAccess. Remove static keys from .env.
-        # Boto3 auto-discovers credentials from the EC2 instance metadata — no keys needed.
-        kwargs = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
-        if os.environ.get("AWS_ACCESS_KEY_ID"):
-            kwargs["aws_access_key_id"] = os.environ.get("AWS_ACCESS_KEY_ID")
-            kwargs["aws_secret_access_key"] = os.environ.get("AWS_SECRET_ACCESS_KEY")
-        self.client = boto3.client("bedrock-runtime", **kwargs)
+        key = os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            raise RuntimeError("OPENROUTER_API_KEY is not set. Add it to .env (get a key at https://openrouter.ai/keys).")
+        self.api_key = key
 
-    def _call_sync(self, model: str, messages: list[dict]) -> dict:
-        body = _make_body(model, messages)
-        t0 = time.monotonic()
-        response = self.client.converse(modelId=model, **body)
-        latency_ms = int((time.monotonic() - t0) * 1000)
-
-        text = response["output"]["message"]["content"][0]["text"]
-        usage = response.get("usage", {})
-        return {
-            "text": text,
-            "latency_ms": latency_ms,
-            "tokens_in": usage.get("inputTokens"),
-            "tokens_out": usage.get("outputTokens"),
-            "provider": "bedrock",
+    def converse(self, modelId: str, messages: list[dict], system: list[dict] | None = None,
+                 inferenceConfig: dict | None = None, max_retries: int = 3) -> dict:
+        cfg = inferenceConfig or {}
+        payload: dict = {
+            "model": modelId,
+            # Bedrock nests text in content blocks; OpenAI-style wants a plain string.
+            "messages": (
+                [{"role": "system", "content": " ".join(s["text"] for s in system)}] if system else []
+            ) + [
+                {"role": m["role"], "content": " ".join(c["text"] for c in m["content"])}
+                for m in messages
+            ],
         }
+        if "maxTokens" in cfg:
+            payload["max_tokens"] = cfg["maxTokens"]
+        if "temperature" in cfg:
+            payload["temperature"] = cfg["temperature"]
 
-    async def complete(self, model: str, messages: list[dict], max_retries: int = 3) -> dict:
-        loop = asyncio.get_event_loop()
+        headers = {"Authorization": f"Bearer {self.api_key}", "HTTP-Referer": "https://aura-ai.app"}
+
+        last_err: Exception | None = None
         for attempt in range(max_retries):
+            t0 = time.monotonic()
             try:
-                result = await loop.run_in_executor(None, self._call_sync, model, messages)
-                log.info(
-                    "llm_call",
-                    provider="bedrock",
-                    model=model,
-                    latency_ms=result["latency_ms"],
-                    tokens_in=result["tokens_in"],
-                    tokens_out=result["tokens_out"],
+                resp = httpx.post(
+                    f"{OPENROUTER_BASE}/chat/completions",
+                    headers=headers, json=payload, timeout=90,
                 )
-                return result
+                if resp.status_code == 429:
+                    time.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                usage = data.get("usage", {})
+                log.info(
+                    "llm_call", provider="openrouter", model=modelId,
+                    latency_ms=int((time.monotonic() - t0) * 1000),
+                    tokens_in=usage.get("prompt_tokens"), tokens_out=usage.get("completion_tokens"),
+                )
+                return {
+                    "output": {"message": {"content": [{"text": data["choices"][0]["message"]["content"]}]}},
+                    "usage": {
+                        "inputTokens": usage.get("prompt_tokens"),
+                        "outputTokens": usage.get("completion_tokens"),
+                    },
+                }
             except Exception as e:
+                last_err = e
                 if attempt == max_retries - 1:
                     raise
-                wait = 2 ** attempt
-                log.warning("bedrock_error", error=str(e), attempt=attempt, wait=wait)
-                await asyncio.sleep(wait)
+                log.warning("openrouter_error", error=str(e), attempt=attempt)
+                time.sleep(2 ** attempt)
 
-        raise RuntimeError(f"Bedrock call failed after {max_retries} attempts")
+        raise RuntimeError(f"OpenRouter converse failed after {max_retries} attempts: {last_err}")

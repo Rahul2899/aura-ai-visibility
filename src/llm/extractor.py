@@ -21,7 +21,7 @@ class ExtractionResult(BaseModel):
 
 
 async def extract_mentions(
-    client,  # OpenRouterClient or BedrockClient
+    client,  # OpenRouterClient
     model: str,
     response_text: str,
     max_retries: int = 2,  # 1 initial + 1 retry; failure falls back to empty (model excluded from score)

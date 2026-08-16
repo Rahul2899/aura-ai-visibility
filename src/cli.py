@@ -122,7 +122,7 @@ def orchestrate_audit(
 @app.command()
 def scheduled_audit(
     stale_days: int = typer.Option(7, "--stale-days", help="Re-audit brands whose latest audit is older than this"),
-    max_brands: int = typer.Option(3, "--max-brands", help="Hard cap on audits per run (protects the Bedrock bill)"),
+    max_brands: int = typer.Option(3, "--max-brands", help="Hard cap on audits per run (protects the request quota)"),
     examples_only: bool = typer.Option(False, "--examples-only", help="Only re-audit the demo (example) brands"),
 ):
     """Re-audit stale brands so the visibility-over-time chart grows on its own.

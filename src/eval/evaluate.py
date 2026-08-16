@@ -12,12 +12,12 @@ from pathlib import Path
 import structlog
 
 from src.llm.extractor import extract_mentions
-from src.llm.bedrock_client import BEDROCK_MODELS, BedrockClient
+from src.llm.client import DEFAULT_MODELS, OpenRouterClient
 
 log = structlog.get_logger()
 
 LABELED_PATH = Path(__file__).parent / "labeled.jsonl"
-EVAL_MODEL = BEDROCK_MODELS[0]  # use first Bedrock model for eval
+EVAL_MODEL = DEFAULT_MODELS[0]  # first model in the panel
 
 
 def _normalize(name: str) -> str:
@@ -46,7 +46,7 @@ async def run_eval():
         print("labeled.jsonl is empty")
         return
 
-    client = BedrockClient()
+    client = OpenRouterClient()
     total_tp = total_fp = total_fn = 0
     failures = []
 

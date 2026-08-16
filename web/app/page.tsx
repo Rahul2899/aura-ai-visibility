@@ -509,7 +509,7 @@ export default function Home() {
                   {[
                     { step: "01", title: "Configure", desc: "Add your brand name and domain in the sidebar." },
                     { step: "02", title: "Probing", desc: "Aura generates 10 search-intent prompt questions." },
-                    { step: "03", title: "Evaluate", desc: "Bedrock agents query multiple models in parallel." },
+                    { step: "03", title: "Evaluate", desc: "Agents query multiple models in parallel." },
                     { step: "04", title: "Analyze", desc: "Calculate visibility indexes and surface the exact gaps." }
                   ].map((s, idx) => (
                     <div key={idx} className="relative bg-slate-50 p-4.5 rounded-xl border border-slate-200 flex flex-col gap-2">

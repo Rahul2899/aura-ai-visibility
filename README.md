@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Python" src="https://img.shields.io/badge/Python-FastAPI-009688?logo=fastapi&logoColor=white">
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-TypeScript-000000?logo=next.js&logoColor=white">
-  <img alt="AWS Bedrock" src="https://img.shields.io/badge/AWS-Bedrock-FF9900?logo=amazonaws&logoColor=white">
+  <img alt="OpenRouter" src="https://img.shields.io/badge/LLM-OpenRouter-6467f2?logo=openai&logoColor=white">
   <img alt="Postgres" src="https://img.shields.io/badge/Postgres-Docker-4169E1?logo=postgresql&logoColor=white">
   <img alt="Tests" src="https://img.shields.io/badge/tests-209_passing-3fb950">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
@@ -126,7 +126,7 @@ LLMs are used **only** where natural-language understanding is genuinely require
 ## Tech stack
 
 - **Backend:** FastAPI (async), SQLAlchemy, Postgres
-- **AI:** AWS Bedrock (Converse API, cross-region inference), four model families
+- **AI:** OpenRouter, four model families (DeepSeek · Llama · Qwen · Mistral) — provider-agnostic, no cloud SDK
 - **Frontend:** Next.js (App Router), TypeScript, Tailwind, Recharts
 - **Infra:** Docker Compose (`db` · `app` · `web` · `caddy`); Caddy is the only public entry and terminates TLS automatically
 - **Tests:** 157 backend (pytest) + 52 frontend (Jest) = 209
@@ -138,7 +138,7 @@ LLMs are used **only** where natural-language understanding is genuinely require
 - Each visitor gets a persistent client-side **session id**; their brands and audits are isolated to that session.
 - **Admin mode** (`?admin=<KEY>`, verified server-side via the `X-Admin-Key` header) sees all brands and runs without the per-session limit.
 - A non-admin session is capped at **2 audits**; in-flight and queued audits both count toward the cap, so a third request is rejected even before the first two finish.
-- A **global daily audit cap** protects the underlying AWS/Bedrock spend: it counts every audit platform-wide and resets at UTC midnight, so the public demo can't run up an unbounded bill (and can't be dodged by clearing cookies or switching browsers). This is why the hosted demo is best-effort and free *for a limited time*.
+- A **global daily audit cap** protects the shared model quota: it counts every audit platform-wide and resets at UTC midnight, so the public demo can't exhaust the day's requests (and can't be dodged by clearing cookies or switching browsers). This is why the hosted demo is best-effort.
 - **Delete is asymmetric by design:** a user delete hides the brand from that user; an admin delete removes it everywhere. Audits already in flight for a brand block a duplicate run.
 
 ---
@@ -150,7 +150,7 @@ Everything runs in Docker — no local Python/Node setup needed.
 ```bash
 # 1. Configure secrets
 cp .env.example .env
-#    Set AWS credentials (or attach an IAM role in prod — see DEPLOY.md),
+#    Set OPENROUTER_API_KEY (https://openrouter.ai/keys),
 #    a strong POSTGRES_PASSWORD, and an ADMIN_KEY. Never commit .env.
 
 # 2. Build and start the full stack (db, app, web, caddy)
@@ -162,7 +162,7 @@ docker compose up -d --build
 
 The app applies its schema migrations on startup and seeds a small set of example brands automatically. `POSTGRES_USER`/`POSTGRES_DB` default to `peec` — an internal database identifier only; the product is **Aura AI**.
 
-> **Bedrock note:** the model IDs use the `eu.` cross-region-inference prefix, so the AWS region must be `eu-central-1` (Frankfurt) and those models must be enabled in the Bedrock console, or every probe will fail. The exact IDs live in `src/llm/bedrock_client.py`.
+> **Quota note:** the panel uses OpenRouter `:free` models (IDs in `DEFAULT_MODELS`, `src/llm/client.py`). One audit is roughly 50 model calls, and the free tier allows ~50 requests/day — so expect about **one audit per day** until the OpenRouter account has credit, which raises the limit to ~1000/day. `GLOBAL_DAILY_AUDIT_CAP` in `.env` should be sized to match.
 
 A `Makefile` also exposes a CLI/eval path (`make audit`, `make eval`) used for offline experimentation; the web app above is the primary interface.
 
@@ -181,13 +181,13 @@ A small ops helper, `./admin.sh`, wraps the common tasks:
 ./admin.sh clean           # delete all non-demo brands (keeps the 4 demos)
 ```
 
-It reads `ADMIN_KEY` / `POSTGRES_*` from `.env` — no secrets are baked into the script. (`./seed_audit.sh` is a manual re-seed for the demo-brand scores; on a fresh deploy with AWS creds, `AUTO_SEED_AUDITS` already populates them on first boot.)
+It reads `ADMIN_KEY` / `POSTGRES_*` from `.env` — no secrets are baked into the script. (`./seed_audit.sh` is a manual re-seed for the demo-brand scores; on a fresh deploy with an OpenRouter key, `AUTO_SEED_AUDITS` populates them on first boot — leave it off on the free tier, it consumes a full day of quota.)
 
 ---
 
 ## Production deployment
 
-See **[DEPLOY.md](DEPLOY.md)** for the full runbook: secret rotation (IAM role instead of static keys), the EC2 `.env`, security-group rules, HTTPS via Caddy, and the smoke test. Deployment is a single `./deploy.sh` on the box once secrets are in place.
+See **[DEPLOY.md](DEPLOY.md)** for the full runbook: secrets, the VM `.env`, firewall rules, HTTPS via Caddy, and the smoke test. Deployment is a single `./deploy.sh` on the box once secrets are in place. The stack is plain Docker Compose with no cloud SDK, so it runs on any provider — the runbook targets GCP's always-free `e2-micro`.
 
 ---
 
@@ -197,7 +197,7 @@ See **[DEPLOY.md](DEPLOY.md)** for the full runbook: secret rotation (IAM role i
 src/
   agents/orchestrator.py   two-phase audit engine (question gen, probes, scoring)
   api/                     FastAPI app, routes, auth, rate limiting
-  llm/                     Bedrock client, structured mention extractor
+  llm/                     OpenRouter client, structured mention extractor
   pipeline/                deterministic scorer + offline runner
   models.py                SQLAlchemy schema
 web/                       Next.js dashboard (brand detail, compare, share)

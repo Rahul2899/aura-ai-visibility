@@ -54,7 +54,7 @@ class Run(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     prompt_id: Mapped[int] = mapped_column(ForeignKey("prompts.id"), nullable=False)
     model: Mapped[str] = mapped_column(String(200), nullable=False)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="bedrock")
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="openrouter")
     response_text: Mapped[Optional[str]] = mapped_column(Text)
     raw_json: Mapped[Optional[dict]] = mapped_column(JSONB)
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
