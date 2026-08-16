@@ -73,6 +73,23 @@ def test_rejecting_everything_falls_back_to_the_full_list():
     assert len(out) == 2
 
 
+def test_the_models_ranking_is_preserved():
+    """Big brands own several sites. Kaufland is a hypermarket chain, but the audit
+    picked kaufland-ecommerce.com — a real Kaufland site, wrong business unit — and
+    scored the chain against online marketplaces at 6.2%. The model is asked to put the
+    brand's MAIN site first, and when one candidate survives the caller adopts it, so
+    that order must not be re-sorted back into search-engine order."""
+    results = [
+        {"domain": "kaufland-ecommerce.com", "title": "Kaufland Marketplace",
+         "description": "Sell on our online marketplace."},
+        {"domain": "kaufland.de", "title": "Kaufland",
+         "description": "Your hypermarket. Weekly offers, find a store near you."},
+    ]
+    llm = FakeLLM([1, 0])  # main site first, business unit second
+    out = asyncio.run(_classify_candidates(llm, "Kaufland", results))
+    assert [c["domain"] for c in out] == ["kaufland.de", "kaufland-ecommerce.com"]
+
+
 def test_empty_input_needs_no_model_call():
     llm = FakeLLM([0])
     assert asyncio.run(_classify_candidates(llm, "PeecAI", [])) == []

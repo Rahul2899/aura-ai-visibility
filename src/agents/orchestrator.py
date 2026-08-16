@@ -258,7 +258,9 @@ Judge by the CONTENT, not the domain. A page that reports on the company in the 
 
 If the snippet is too thin to tell, answer false — a wrong guess sends the audit to the wrong company.
 
-Return ONLY JSON: {"official": [<indices of official sites>]}. Use the numbers given. No prose, no markdown fences."""
+Large brands own several sites: a main consumer site plus separate ones for a business unit, a marketplace arm, careers or investors. Prefer the site for the brand's MAIN business — what the brand is known for and where most customers meet it. A hypermarket chain's main site is its stores, not its online-marketplace arm; picking the arm measures the brand against the wrong competitors. Only choose a business-unit site if the brand IS that unit.
+
+Return ONLY JSON: {"official": [<indices of official sites>]}. Use the numbers given, best first. No prose, no markdown fences."""
 
 
 async def _classify_candidates(llm, brand_name: str, results: list[dict]) -> list[dict]:
@@ -292,8 +294,11 @@ async def _classify_candidates(llm, brand_name: str, results: list[dict]) -> lis
         raw = resp["output"]["message"]["content"][0]["text"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1].removeprefix("json").strip()
-        keep = {int(i) for i in json.loads(raw).get("official", [])}
-        official = [r for i, r in enumerate(results) if i in keep]
+        # Preserve the model's ORDER, not the search engine's. It ranks the brand's main
+        # site ahead of a business-unit site, and when exactly one candidate survives the
+        # caller adopts it outright — so "best first" has to survive to the caller.
+        order = [int(i) for i in json.loads(raw).get("official", [])]
+        official = [results[i] for i in order if 0 <= i < len(results)]
         log.info("candidates_classified", brand=brand_name,
                  kept=len(official), dropped=len(results) - len(official))
         # Everything looked like a third party. That's a real answer (the brand may have
