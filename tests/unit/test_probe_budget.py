@@ -10,11 +10,24 @@ os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 
 from src.llm.client import (
     PROBE_MAX_TOKENS,
+    EXTRACT_MAX_TOKENS,
     REASONING_HEADROOM,
     REASONING_MANDATORY,
     DEFAULT_MODELS,
+    ORCHESTRATOR_MODEL,
     probe_token_budget,
+    extract_token_budget,
 )
+
+
+def test_extraction_is_capped():
+    """Extraction ran uncapped and became the largest output in an audit — more tokens
+    than all four probe models combined — because the reasoning model thinks before
+    emitting a short JSON array."""
+    budget = extract_token_budget(ORCHESTRATOR_MODEL)
+    assert budget <= EXTRACT_MAX_TOKENS + REASONING_HEADROOM
+    # Must still clear the JSON itself once reasoning has taken its share.
+    assert budget - REASONING_HEADROOM >= 400
 
 
 def test_mandatory_reasoning_models_get_headroom():

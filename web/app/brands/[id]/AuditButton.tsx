@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { reloadPage } from "../../lib/navigation";
 import { authHeaders } from "../../lib/session";
+import { REGIONS } from "./RegionComparison";
 import { Play, Loader2, CheckCircle2, AlertCircle, Terminal, ChevronDown, Plus } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -341,23 +342,28 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
                 placeholder="e.g. premium chocolate, gym membership"
                 className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
               />
-              {/* Market toggle — smart default (detected region), one tap to switch. Only
-                  shown when a home market was detected; pure-global brands skip it. */}
-              {preview.detected_region && (
-                <div>
-                  <p className="text-[11px] font-bold text-slate-500 mb-1">Market to measure</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button type="button" onClick={() => setRegion(preview.detected_region ?? null)}
-                      className={`text-xs font-bold rounded-lg px-2 py-2 border transition-colors ${region ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent-2)]" : "bg-white border-slate-200 text-slate-500"}`}>
-                      {preview.detected_region} <span className="font-normal opacity-70">(detected)</span>
+              {/* Market to measure. Always shown: region changes the result, and when
+                  detection finds nothing (no domain, generic TLD) the audit silently ran
+                  Global with no way to say otherwise. The detected market leads when there
+                  is one; otherwise the user picks from the common markets. */}
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 mb-1">Market to measure</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    ...(preview.detected_region ? [preview.detected_region] : []),
+                    ...REGIONS.filter(r => r !== preview.detected_region),
+                  ].map(r => (
+                    <button key={r} type="button" onClick={() => setRegion(r)}
+                      className={`text-xs font-bold rounded-lg px-2 py-2 border transition-colors ${region === r ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent-2)]" : "bg-white border-slate-200 text-slate-500"}`}>
+                      {r}{r === preview.detected_region && <span className="font-normal opacity-70"> (detected)</span>}
                     </button>
-                    <button type="button" onClick={() => setRegion(null)}
-                      className={`text-xs font-bold rounded-lg px-2 py-2 border transition-colors ${!region ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent-2)]" : "bg-white border-slate-200 text-slate-500"}`}>
-                      Globally
-                    </button>
-                  </div>
+                  ))}
+                  <button type="button" onClick={() => setRegion(null)}
+                    className={`text-xs font-bold rounded-lg px-2 py-2 border transition-colors ${!region ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent-2)]" : "bg-white border-slate-200 text-slate-500"}`}>
+                    Globally
+                  </button>
                 </div>
-              )}
+              </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => startAudit(editCategory)} className="btn-primary flex-1 flex items-center justify-center gap-1.5 text-xs">
                   <Play className="w-3.5 h-3.5 text-white fill-white" /> Run audit

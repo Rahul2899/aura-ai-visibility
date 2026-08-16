@@ -72,6 +72,18 @@ def probe_token_budget(model: str) -> int:
     return PROBE_MAX_TOKENS + (REASONING_HEADROOM if model in REASONING_MANDATORY else 0)
 
 
+# Extraction returns a short JSON array of brand names — a few hundred tokens even for a
+# long answer. It ran uncapped and became the single largest output in an audit (more
+# than all four probe models combined) because the reasoning model thinks before
+# emitting JSON. Same headroom rule: room to reason, then a bounded answer.
+EXTRACT_MAX_TOKENS = 500
+
+
+def extract_token_budget(model: str) -> int:
+    """max_tokens for one extraction call."""
+    return EXTRACT_MAX_TOKENS + (REASONING_HEADROOM if model in REASONING_MANDATORY else 0)
+
+
 class OutOfCreditsError(RuntimeError):
     """OpenRouter returned 402 — the account balance is spent. Distinct from a transient
     HTTP failure so callers can tell the user the budget ran out, not that the app broke."""

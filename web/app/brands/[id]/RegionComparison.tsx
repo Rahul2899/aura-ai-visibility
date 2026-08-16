@@ -7,7 +7,8 @@ import { Globe, MapPin, Loader2 } from "lucide-react";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // Regions a user can measure a brand in. "Global" is the default framing (region=null).
-const REGIONS = ["United States", "Europe", "Germany", "United Kingdom", "India"];
+// Exported so the pre-audit market picker offers the same set as this post-audit one.
+export const REGIONS = ["United States", "Europe", "Germany", "United Kingdom", "India"];
 
 type Insight = { visibility_pct: number | null; region?: string | null; created_at: string };
 

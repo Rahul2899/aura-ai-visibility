@@ -4,6 +4,8 @@ from typing import Literal
 import structlog
 from pydantic import BaseModel, ValidationError
 
+from src.llm.client import extract_token_budget
+
 log = structlog.get_logger()
 
 EXTRACTION_PROMPT = (Path(__file__).parent.parent.parent / "prompts" / "extraction.txt").read_text()
@@ -42,7 +44,8 @@ async def extract_mentions(
                 "content": f"Your response failed JSON validation: {last_error}\n\nPlease return ONLY valid JSON matching the schema.",
             })
 
-        result = await client.complete(model=model, messages=messages)
+        result = await client.complete(model=model, messages=messages,
+                                       max_tokens=extract_token_budget(model))
         raw = result["text"].strip()
         last_raw = raw
 
