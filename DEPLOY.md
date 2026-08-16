@@ -19,12 +19,15 @@ Generate fresh values. Never reuse local-dev secrets in production.
 
 - **OPENROUTER_API_KEY** — required. Get one at https://openrouter.ai/keys.
   The app refuses to boot without it (`_REQUIRED_VARS` in `src/api/main.py`).
-  The model panel lives in `DEFAULT_MODELS` (`src/llm/client.py`) and uses `:free`
-  models — no card needed.
-  **Quota:** free tier is ~50 requests/day. One audit ≈ 50 model calls (~10 probes
-  × 4 models + orchestration), so the free tier is about **one audit per day**.
-  Adding any credit to the OpenRouter account lifts it to ~1000/day (~20 audits).
-  Size `GLOBAL_DAILY_AUDIT_CAP` to match — see section 1.
+  The model panel lives in `DEFAULT_MODELS` (`src/llm/client.py`): GPT-5.4 Mini,
+  Gemini 3.7 Flash, Grok 4.3 and Claude Haiku 4.5 — the four assistants buyers
+  actually use, from four different labs.
+  **Cost:** these are PAID models, so the cap is a spend ceiling, not a quota
+  ceiling. One audit ≈ 50 model calls (~10 probes × 4 models + orchestration)
+  ≈ **$0.06**, measured over five real audits. Size `GLOBAL_DAILY_AUDIT_CAP`
+  against the OpenRouter balance — see section 1. Top up at
+  https://openrouter.ai/credits; the app returns a clear error when the balance
+  runs out, it does not silently degrade.
 - **ADMIN_KEY** — generate a new random value: `openssl rand -base64 32`
 - **POSTGRES_PASSWORD** — set a strong value **before the first `up`** (Postgres
   bakes it on first volume init; changing later needs a volume wipe).
@@ -46,9 +49,11 @@ SITE_ADDRESS=your-app.duckdns.org
 ALLOWED_ORIGINS=https://your-app.duckdns.org
 NEXT_PUBLIC_API_URL=/api
 
-# Free tier ≈ 1 audit/day. Raise to ~20 only after adding OpenRouter credit.
-GLOBAL_DAILY_AUDIT_CAP=1
-# Seeding burns a full day of free quota. Leave false unless you want demo data.
+# Daily SPEND ceiling: audits x ~$0.06. 5/day ≈ $0.30/day, so a $3 balance lasts
+# ~10 days even if the cap is hit daily. Raise it alongside the balance, not ahead.
+GLOBAL_DAILY_AUDIT_CAP=5
+# Seeding runs a full audit per demo brand and costs real money. Leave false
+# unless you want demo data and have the balance for it.
 AUTO_SEED_AUDITS=false
 ```
 

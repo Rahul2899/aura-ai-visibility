@@ -395,7 +395,15 @@ def _brand_matches(target: str, extracted: str) -> bool:
     if t == e:
         return True
     # target appears as a complete word/token within the extracted name
-    return re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", e) is not None
+    if re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", e) is not None:
+        return True
+    # Users type brand names with spacing and punctuation the brand doesn't use
+    # ("star bucks", "Coca Cola", "Pay-Pal"). Compare with separators removed so the
+    # typed form still matches what the models actually say. Only an exact match
+    # counts here — substring matching on stripped text would let "Lever" hit
+    # "Clever Bit". Length-gated because 1-2 char targets collide too easily.
+    t_tight, e_tight = re.sub(r"[\s\-_.]+", "", t), re.sub(r"[\s\-_.]+", "", e)
+    return len(t_tight) > 2 and t_tight == e_tight
 
 
 async def _probe_one_model(provider: str, model: str, prompt_text: str, target_brand: str, on_event=None) -> dict:
