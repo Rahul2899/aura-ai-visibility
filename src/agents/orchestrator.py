@@ -786,6 +786,20 @@ def _strip_brand(text: str, brand: str) -> str:
     return re.sub(rf"(?<![a-z0-9]){re.escape(brand)}(?![a-z0-9])", "the brand", text, flags=re.IGNORECASE)
 
 
+CATEGORY_INFER_PROMPT = """You name the CATEGORY a buyer is choosing between when they end up with a given brand.
+
+You are given a brand name and some web context about it. The context may come from an article, blog or directory that merely COVERS the brand. Describe the BRAND, never the publication: if the text reads like a magazine or blog about an industry, ignore what that publisher is and label the brand it is discussing.
+
+First decide what KIND of thing the brand is:
+- a place people GO (cafe, restaurant, gym, hotel, salon, shop) -> name the venue category, e.g. "coffee shop chain", "fast casual restaurant"
+- a product people BUY (chocolate, shoes, software) -> name the product category, e.g. "premium chocolate", "applicant tracking software"
+- a service people HIRE (agency, consultancy, insurer) -> name the service category, e.g. "freelance design agency"
+
+Where a brand sells matters and follows the brand, not the source. A chain of physical stores is a retail chain even when a technology blog writes about it; do not label it an online or ecommerce platform unless the brand itself sells primarily online.
+
+Answer in 2-6 words. Return ONLY the category phrase, no brand name, no punctuation, no explanation."""
+
+
 async def _infer_category(llm, name: str, industry: str | None, web_context: str | None) -> str:
     """Derive a short, concrete category label (e.g. "premium chocolate / confectionery",
     "electric SUV", "applicant tracking software") used to GROUND the neutral question
@@ -805,26 +819,16 @@ async def _infer_category(llm, name: str, industry: str | None, web_context: str
         parts.append(f"Stated industry: {industry.strip()}")
     if web_context:
         parts.append(f"Web context: {web_context[:800]}")
-    user = "\n".join(parts) + (
-        "\n\nIn 2-6 words, name the CATEGORY a buyer is choosing between when they end up "
-        "with this brand.\n\n"
-        # Decide the KIND of business before the label. Asking only for a "product
-        # category" makes venue brands come back as the product they serve — Starbucks
-        # scored as 'specialty coffee beverages' and was then measured against
-        # whole-bean roasters, a market it isn't in. A cafe competes with cafes.
-        "First decide what KIND of thing it is:\n"
-        "- a place people GO (cafe, restaurant, gym, hotel, salon, shop) -> name the "
-        "venue category, e.g. 'coffee shop chain', 'fast casual restaurant'\n"
-        "- a product people BUY (chocolate, shoes, software) -> name the product "
-        "category, e.g. 'premium chocolate', 'applicant tracking software'\n"
-        "- a service people HIRE (agency, consultancy, insurer) -> name the service "
-        "category, e.g. 'freelance design agency'\n\n"
-        "Return ONLY the category phrase, no brand name, no punctuation, no explanation."
-    )
+    user = "\n".join(parts)
     try:
         resp = await asyncio.to_thread(
             lambda: llm.converse(
                 modelId=ORCHESTRATOR_MODEL,
+                # The task belongs in a system prompt, not appended after 800 characters
+                # of scraped text. Inline, the model read the context first and labelled
+                # whatever that text was about — an offline retailer described by an
+                # e-commerce blog came back as "ecommerce online platform".
+                system=[{"text": CATEGORY_INFER_PROMPT}],
                 messages=[{"role": "user", "content": [{"text": user}]}],
                 inferenceConfig={"maxTokens": 30, "temperature": 0.2},
             )
@@ -984,6 +988,53 @@ async def _generate_recommendations(llm, brand_name: str, industry: str | None,
         return []
 
 
+DOMAIN_OWNERSHIP_PROMPT = """You are checking whether a website belongs TO a brand, or merely writes ABOUT it.
+
+You are given a brand name and the text of a website's homepage.
+
+Answer true only if this homepage is that brand's own site: it speaks as the brand ("we build...", its own products, pricing, a signup or store locator), and the brand is what the site is for.
+
+Answer false if the homepage belongs to someone else — a publication, blog, review site, directory, marketplace, or a different company — even when it covers the brand or the brand name appears in the text. A site whose homepage is about an industry rather than this one brand is false.
+
+Return ONLY JSON: {"owns": true|false}. No prose, no markdown fences."""
+
+
+async def _domain_speaks_for_brand(llm, name: str, domain: str) -> bool:
+    """Does `domain`'s homepage belong to `name`, or does it just cover it?
+
+    The candidate list is content-filtered, but a user can pick anything from it (or
+    type a domain), and whatever they pick becomes the brand's identity: the homepage is
+    scraped and its text drives category inference. Picking a publication silently
+    transplanted that publication's identity onto the brand.
+
+    Reads the real homepage rather than a search snippet — a blog's snippet often quotes
+    the brand, while its homepage plainly describes the blog. Fails OPEN (returns True)
+    when the page can't be fetched or the check errors, so a scrape failure doesn't
+    reject a legitimate domain the user explicitly chose."""
+    page = await _scrape_homepage(name, domain)
+    if not page:
+        return True  # can't read it: don't overrule the user on no evidence
+    prompt = f'Brand name: "{name}"\nWebsite: {domain}\n\nHomepage text:\n{page[:1200]}'
+    try:
+        resp = await asyncio.to_thread(
+            lambda: llm.converse(
+                modelId=ORCHESTRATOR_MODEL,
+                system=[{"text": DOMAIN_OWNERSHIP_PROMPT}],
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 20, "temperature": 0},
+            )
+        )
+        raw = resp["output"]["message"]["content"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].removeprefix("json").strip()
+        return bool(json.loads(raw).get("owns", True))
+    except OutOfCreditsError:
+        raise
+    except Exception as e:
+        log.warning("domain_ownership_check_failed", brand=name, domain=domain, error=str(e))
+        return True
+
+
 async def _verify_entity(llm, name: str, industry: str | None, web_context: str) -> bool:
     """Cheap check: does the web_context actually describe a company called `name`
     (in `industry`, if given)? Guards against auditing a different same-named entity
@@ -1050,6 +1101,16 @@ async def preview_audit(session: AsyncSession, brand_id: int, domain_override: s
     name = brand.name
     if domain_override and domain_override.strip():
         brand.domain = domain_override.strip()[:255]
+        await session.commit()
+
+    # A picked domain is trusted as the brand's own site from here on, so its homepage
+    # decides the category. If the pick was a publication that covers the brand, the
+    # audit inherits the PUBLICATION's identity — an offline retailer picked from an
+    # e-commerce blog came back as "ecommerce online platform". Check the page actually
+    # speaks as this brand before letting it define one.
+    if brand.domain and not await _domain_speaks_for_brand(llm, name, brand.domain):
+        log.info("domain_rejected_not_the_brand", brand=name, domain=brand.domain)
+        brand.domain = None
         await session.commit()
 
     context = await _get_brand_context_tool(session, brand_id)
