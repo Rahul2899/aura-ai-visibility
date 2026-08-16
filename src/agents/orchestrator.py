@@ -1246,7 +1246,8 @@ async def orchestrate(session: AsyncSession, brand_id: int, dry_run: bool = Fals
     )
     questions = []
     cohort_reused = False
-    if previous and not custom_questions and not category_override and previous.region == (region or None):
+    category_changed = bool(category_override and _fold(category_override) != _fold(brand.industry or ""))
+    if previous and not custom_questions and not category_changed and previous.region == (region or None):
         questions = _cohort_questions(previous.raw_tool_calls)
         cohort_reused = bool(questions)
     if cohort_reused:

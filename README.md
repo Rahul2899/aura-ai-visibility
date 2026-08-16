@@ -1,4 +1,4 @@
-# Aura AI — Brand Visibility for the AI Search Era
+# MapTheModel — Brand Visibility for the AI Search Era
 
 <p align="center">
   <a href="https://aurai.duckdns.org"><img alt="Live demo" src="https://img.shields.io/badge/▶_Live_Demo-aurai.duckdns.org-1863dc?style=for-the-badge"></a>
@@ -9,7 +9,7 @@
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-TypeScript-000000?logo=next.js&logoColor=white">
   <img alt="OpenRouter" src="https://img.shields.io/badge/LLM-OpenRouter-6467f2?logo=openai&logoColor=white">
   <img alt="Postgres" src="https://img.shields.io/badge/Postgres-Docker-4169E1?logo=postgresql&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-209_passing-3fb950">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-188_passing-3fb950">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
@@ -17,7 +17,7 @@
 
 When buyers research what to buy, they increasingly ask an AI assistant instead of a search engine. *"What's the best applicant tracking system for a 200-person company?"* The models name a handful of brands. **If yours isn't one of them, you're invisible at the exact moment of decision — and unlike SEO, there's no results page to check.**
 
-Aura AI measures that. It runs the questions a real buyer would ask across several leading AI models, detects whether a brand surfaces organically, and reports a visibility score with a per-model and per-question breakdown.
+MapTheModel measures that. It runs the questions a real buyer would ask across several leading AI models, detects whether a brand surfaces organically, and reports a visibility score with a per-model and per-question breakdown.
 
 ---
 
@@ -45,7 +45,13 @@ The [live demo](https://aurai.duckdns.org) carries four brands across four diffe
 | Lindt | Premium chocolate | 46.9% |
 | Nike | Athletic apparel | 46.9% |
 
-A household name like Nike scoring lower than Wise is exactly the kind of non-obvious result the audit surfaces: brand fame ≠ being *recommended* by an AI for category questions. (Scores are regenerated on each audit and shift slightly run to run, since the models aren't deterministic.)
+A household name like Nike scoring lower than Wise is exactly the kind of non-obvious result the audit surfaces: brand fame ≠ being *recommended* by an AI for category questions.
+
+### Making re-audits comparable
+
+The first audit creates a scored question cohort. Re-audits reuse that cohort when the category and market are unchanged, so a trend measures changed model answers rather than a new set of questions. Changing the category, market, or custom questions intentionally starts a new cohort; that trend is marked directional instead of directly comparable.
+
+Every result shows completed model responses over expected responses. Failed calls are excluded rather than counted as a non-mention, and the denominator makes that visible. Before an audit, the user confirms the selected entity, category, market, and identity evidence; optional aliases (product names or legal names) can also count as the target brand.
 
 ---
 
@@ -55,7 +61,7 @@ The hard part of this product is not calling models — it's asking *fair* quest
 
 If the question generator knows which brand it's evaluating, it will (even unintentionally) shape "category" questions around that brand's strengths — and the brand then appears ~100% of the time. The score looks great and means nothing.
 
-Aura solves this by generating questions in **two blind pools**:
+MapTheModel solves this by generating questions in **two blind pools**:
 
 1. **Category questions (scored)** — generated from the *industry only*. The generator is never told the brand name, so the questions stay neutral to the category (*"which CRM is easiest for a small sales team to set up?"*). These are the only questions that count toward the visibility score.
 2. **Brand-direct questions (unscored)** — generated *with* the brand, for the detail view (pricing, integrations, head-to-heads). Excluded from scoring, because a model trivially repeats a name it was given.
@@ -88,7 +94,7 @@ graph TD
 
     subgraph Phase_A["Phase A — understand & ask (blind)"]
         Web["Live web context<br/>(homepage / search)"] --> Gen
-        Gen["Question generator<br/>(Gemini 3.7 Flash)"] --> Qs["10 questions<br/>8 category (scored) + 2 brand-direct"]
+        Gen["Question generator<br/>(question cohort)"] --> Qs["10 questions<br/>8 category (scored) + 2 brand-direct"]
     end
 
     subgraph Phase_B["Phase B — probe in parallel"]
@@ -104,9 +110,9 @@ graph TD
     API -. live progress (SSE-style feed) .-> User
 ```
 
-**Two-phase audit.** Phase A grounds the brand in live web context and writes the questions. Phase B fires every question across the model panel **concurrently** (one bounded wave, not sequentially), extracts brand mentions from each answer with a structured LLM extractor, and a fast model (Gemini 3.7 Flash) writes the factual summary.
+**Two-phase audit.** Phase A grounds the brand in live web context and writes the initial question cohort. A comparable re-audit reuses it. Phase B fires every question across the model panel **concurrently** (one bounded wave, not sequentially), extracts brand mentions from each answer with a structured LLM extractor, and a fast model writes the factual summary.
 
-**Four vendors on purpose.** GPT-5.4 Mini, Gemini 3.7 Flash, Grok 4.3, and Claude Haiku 4.5 — the four assistants real buyers actually ask before they buy, from four *different* labs, so "cross-model visibility" is a credible measurement rather than one lab's opinion. Failed model calls are excluded from the denominator (a model that errored is "unknown," never counted as a "no").
+**Four vendors on purpose.** GPT-5.4 Mini, Gemini 3.7 Flash, Grok 4.3, and Claude Haiku 4.5 — the four assistants real buyers actually ask before they buy, from four *different* labs, so "cross-model visibility" is a credible measurement rather than one lab's opinion. Failed model calls are excluded from the denominator (a model that errored is "unknown," never counted as a "no") and the completed-response count is shown with the result.
 
 Panel models are the small/fast tier of each family but deliberately **not** the nano tier: very small models don't reliably know mid-size brands, which would read as "invisible" when it's really just a thin model. All four are reached through a single OpenRouter account, so swapping one is a one-line change.
 
@@ -128,10 +134,10 @@ LLMs are used **only** where natural-language understanding is genuinely require
 ## Tech stack
 
 - **Backend:** FastAPI (async), SQLAlchemy, Postgres
-- **AI:** OpenRouter, four model families (DeepSeek · Llama · Qwen · Mistral) — provider-agnostic, no cloud SDK
+- **AI:** OpenRouter, GPT-5.4 Mini · Gemini 3.7 Flash · Grok 4.3 · Claude Haiku 4.5 — provider-neutral, no cloud SDK
 - **Frontend:** Next.js (App Router), TypeScript, Tailwind, Recharts
 - **Infra:** Docker Compose (`db` · `app` · `web` · `caddy`); Caddy is the only public entry and terminates TLS automatically
-- **Tests:** 157 backend (pytest) + 52 frontend (Jest) = 209
+- **Tests:** 134 backend unit tests (pytest) + 54 frontend tests (Jest) = 188
 
 ---
 
@@ -162,9 +168,9 @@ docker compose up -d --build
 #    http://localhost   (Caddy proxies the frontend and /api to the backend)
 ```
 
-The app applies its schema migrations on startup and seeds a small set of example brands automatically. `POSTGRES_USER`/`POSTGRES_DB` default to `peec` — an internal database identifier only; the product is **Aura AI**.
+The app applies its schema migrations on startup and seeds a small set of example brands automatically. `POSTGRES_USER`/`POSTGRES_DB` default to `peec` — an internal database identifier only; the product is **MapTheModel**.
 
-> **Quota note:** the panel uses OpenRouter `:free` models (IDs in `DEFAULT_MODELS`, `src/llm/client.py`). One audit is roughly 50 model calls, and the free tier allows ~50 requests/day — so expect about **one audit per day** until the OpenRouter account has credit, which raises the limit to ~1000/day. `GLOBAL_DAILY_AUDIT_CAP` in `.env` should be sized to match.
+> **Spend note:** one audit is roughly 50 model calls. `GLOBAL_DAILY_AUDIT_CAP` is a safety ceiling; size it to the OpenRouter balance and current model prices. When the account spend limit is reached, the audit stops and reports the limit instead of publishing a partial score.
 
 A `Makefile` also exposes a CLI/eval path (`make audit`, `make eval`) used for offline experimentation; the web app above is the primary interface.
 
