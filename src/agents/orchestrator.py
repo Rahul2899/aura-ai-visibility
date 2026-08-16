@@ -85,7 +85,7 @@ async def _fetch_safe(start_url: str, name: str) -> str | None:
     public domain bounce us to 169.254.169.254 (metadata) or an internal service. We
     re-check each Location's host through the same IP guard. Returns page signal or None.
     Raises on transport errors (e.g. TLS) so the caller can decide whether to fall back."""
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; AuraAI/1.0)"}
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; MapTheModel/1.0)"}
     async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
         url = start_url
         for _ in range(6):  # initial request + up to 5 redirects
@@ -665,7 +665,7 @@ def _strip_brand(text: str, brand: str) -> str:
 async def _infer_category(llm, name: str, industry: str | None, web_context: str | None) -> str:
     """Derive a short, concrete category label (e.g. "premium chocolate / confectionery",
     "electric SUV", "applicant tracking software") used to GROUND the neutral question
-    generator. This is what makes Aura genre-independent: even when the user gave no
+    generator. This is what makes MapTheModel genre-independent: even when the user gave no
     industry or domain, we figure out what the brand actually sells so the category
     questions fit its real market instead of defaulting to generic software.
 
@@ -902,7 +902,7 @@ class BrandNotConfirmed(Exception):
 
 async def preview_audit(session: AsyncSession, brand_id: int, domain_override: str | None = None) -> dict:
     """Cheap pre-audit step: gather web context, run the entity check, and infer the
-    category — WITHOUT running any probes. Lets the UI show the user what Aura
+    category — WITHOUT running any probes. Lets the UI show the user what MapTheModel
     understood (which brand, which category) and let them confirm/correct it before
     spending a full audit. Returns:
       {found: bool, category: str, summary: str, source: str}

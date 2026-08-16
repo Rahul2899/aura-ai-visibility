@@ -220,7 +220,7 @@ async def start_audit(
             await _refund_audit_slot(global_key)
             raise HTTPException(
                 status_code=429,
-                detail="Aura AI has hit today's free-audit limit. Please try again tomorrow.",
+                detail="MapTheModel has hit today's free-audit limit. Please try again tomorrow.",
             )
 
     # Enforce the per-session audit limit. The increment happens HERE (at request time),
@@ -261,7 +261,7 @@ async def start_audit(
             status_code=503,
             content={
                 "error": "too_busy",
-                "message": "Aura AI is processing too many audits right now. Please try again in 2-3 minutes.",
+                "message": "MapTheModel is processing too many audits right now. Please try again in 2-3 minutes.",
                 "retry_after_seconds": 120,
             },
             headers={"Retry-After": "120"},

@@ -297,7 +297,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
         )}
       </button>
 
-      {/* Confirm card: what Aura understood, before spending the audit. The user can
+      {/* Confirm card: what MapTheModel understood, before spending the audit. The user can
           correct the category (e.g. change "fitness app" to "gym") so the scored
           questions match what they actually mean. Anchored as a popover below the
           button so it overlays cleanly instead of floating detached in the layout. */}

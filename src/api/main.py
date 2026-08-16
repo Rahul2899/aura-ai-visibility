@@ -169,7 +169,7 @@ async def _seed_example_audits() -> None:
 # attacker the full endpoint/schema map for free. Set ENABLE_DOCS=true locally for dev.
 _docs_on = os.environ.get("ENABLE_DOCS", "false").lower() in ("1", "true", "yes")
 app = FastAPI(
-    title="Aura AI API",
+    title="MapTheModel API",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url="/redoc" if _docs_on else None,

@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "nodejs";
-export const alt = "Aura AI — Brand Visibility Report";
+export const alt = "MapTheModel — Brand Visibility Report";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -47,7 +47,7 @@ export default async function Image({ params }: { params: Promise<{ token: strin
         {/* brand mark */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1863dc", display: "flex" }} />
-          <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: "#16181f", letterSpacing: -1 }}>Aura AI</div>
+          <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: "#16181f", letterSpacing: -1 }}>MapTheModel</div>
           <div style={{ display: "flex", fontSize: 22, color: "#8a90a2", marginLeft: 6 }}>· AI Brand Visibility</div>
         </div>
 

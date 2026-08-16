@@ -4,7 +4,7 @@ from src.models import Brand
 
 # Demo brands shown to every visitor — deliberately spread across four DIFFERENT
 # domains (SaaS, chocolate/CPG, fintech, retail) so a first-time visitor sees that
-# Aura audits ANY industry, not just one vertical. Each carries real audit data
+# MapTheModel audits ANY industry, not just one vertical. Each carries real audit data
 # (scores are produced by a genuine audit run, never hand-written).
 async def seed_example_brands(session: AsyncSession):
     example_brands = [
