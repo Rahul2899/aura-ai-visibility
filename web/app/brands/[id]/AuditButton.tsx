@@ -315,17 +315,17 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Which one do you mean?</p>
                 <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5">
-                  We found a few different companies with this name. Pick the right one so we audit yours, not a namesake.
+                  We found a few different companies with this name. The first is our best match; pick another if needed.
                 </p>
               </div>
               <div className="space-y-1.5">
-                {preview.candidates.map((c) => (
+                {preview.candidates.map((c, index) => (
                   <button
                     key={c.domain}
                     onClick={() => runPreview(c.domain)}
                     className="w-full text-left rounded-lg border border-slate-200 hover:border-[var(--accent)] hover:bg-[var(--accent-dim)] px-3 py-2 transition-colors"
                   >
-                    <p className="text-sm font-bold text-slate-800 truncate">{c.title}</p>
+                    <p className="text-sm font-bold text-slate-800 truncate">{c.title}{index === 0 && <span className="ml-2 text-[10px] uppercase tracking-wide text-[var(--accent-2)]">Recommended</span>}</p>
                     <p className="text-[11px] text-[var(--accent-2)] font-semibold">{c.domain}</p>
                     {c.description && <p className="text-[11px] text-slate-400 font-medium leading-snug mt-0.5 line-clamp-2">{c.description}</p>}
                   </button>
