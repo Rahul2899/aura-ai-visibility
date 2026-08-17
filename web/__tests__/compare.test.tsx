@@ -6,9 +6,9 @@ describe("Multi-Brand Comparison Page Component", () => {
   let originalFetch: typeof global.fetch;
 
   const mockBrandOptions = [
-    { id: 10, name: "Alpha App", visibility_pct: 82 },
-    { id: 20, name: "Beta App", visibility_pct: null },
-    { id: 30, name: "Gamma App", visibility_pct: 42 },
+    { id: 10, name: "Alpha App", industry: "Productivity software", visibility_pct: 82 },
+    { id: 20, name: "Beta App", industry: "Productivity software", visibility_pct: null },
+    { id: 30, name: "Gamma App", industry: "Financial services", visibility_pct: 42 },
   ];
 
   function createFetchMock() {
@@ -145,7 +145,7 @@ describe("Multi-Brand Comparison Page Component", () => {
     });
 
     // Check header and tags
-    expect(screen.getByText("Multi-Brand Comparison")).toBeInTheDocument();
+    expect(screen.getByText("Brand Visibility Comparison")).toBeInTheDocument();
     expect(screen.getByText("Parallel Audits")).toBeInTheDocument();
 
     // Verify option chips render
@@ -223,6 +223,21 @@ describe("Multi-Brand Comparison Page Component", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Compare 2 brands/ })).toBeEnabled();
     });
+  });
+
+  it("blocks a comparison across buyer categories", async () => {
+    global.fetch = createFetchMock();
+    render(<ComparePage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Alpha App").length).toBeGreaterThan(0);
+    });
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Alpha App/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Gamma App/ })); });
+
+    expect(screen.getByRole("button", { name: "Choose same category" })).toBeDisabled();
+    expect(screen.getByText(/Compare brands within the same buyer category/)).toBeInTheDocument();
   });
 
   it("loads the comparison matrix after the user selects audited brands", async () => {

@@ -742,7 +742,9 @@ async def _get_brand_context_tool(session: AsyncSession, brand_id: int) -> dict:
 # around that brand's strengths, and the brand would surface ~100% of the time. By
 # describing only the CATEGORY and a buyer scenario, the questions are neutral, so the
 # score reflects whether the brand genuinely surfaces on its own.
-CATEGORY_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when deciding what to buy in a SPECIFIC category. You are deliberately NOT told any brand name — write questions a neutral shopper asks about the category itself.
+CATEGORY_GEN_PROMPT = """You write the questions a REAL BUYER would type into an AI assistant (ChatGPT, Claude, Gemini) when choosing among BRANDS in a specific category. You are deliberately NOT told any brand name — write questions a neutral shopper asks about the category itself.
+
+This measures which brands the assistant surfaces, not a product-feature score. Ask at the brand or company level; never compare individual SKUs or product features as the outcome.
 
 You are given a CATEGORY. Every question MUST fit a real buyer of THAT category. Match the category's own world — its products, buyers, and the way people actually shop for it. Do not import vocabulary from unrelated categories (a chocolate buyer never asks about integrations or team size; a hotel buyer never asks about pricing tiers per seat).
 

@@ -279,7 +279,7 @@ export default function ComparePage() {
             <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
           </Link>
           <div className="w-px h-4 bg-slate-200" />
-          <span className="font-bold text-sm text-slate-900 tracking-tight">Multi-Brand Comparison</span>
+          <span className="font-bold text-sm text-slate-900 tracking-tight">Brand Visibility Comparison</span>
           <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border border-[var(--border-2)] bg-[var(--accent-dim)] text-[var(--accent)]">
             Parallel Audits
           </span>
@@ -402,7 +402,7 @@ export default function ComparePage() {
 
           <div className="flex items-center flex-wrap gap-3 pt-2">
             <button onClick={runParallelAudits}
-              disabled={selected.length < 2 || running}
+              disabled={selected.length < 2 || running || crossCategory}
               className="btn-primary flex items-center gap-2 text-xs font-semibold">
               {running ? (
                 <>
@@ -412,7 +412,7 @@ export default function ComparePage() {
               ) : (
                 <>
                   <Play className="w-4 h-4 text-slate-900 fill-white" />
-                  <span>{selected.length >= 2 ? `Compare ${selected.length} brands` : "Compare brands"}</span>
+                  <span>{crossCategory ? "Choose same category" : selected.length >= 2 ? `Compare ${selected.length} brands` : "Compare brands"}</span>
                 </>
               )}
             </button>
@@ -442,7 +442,7 @@ export default function ComparePage() {
           {crossCategory && selected.length >= 2 && (
             <div className="flex items-start gap-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>These brands span different categories ({selectedIndustries.join(", ")}). Visibility scores aren&apos;t directly comparable across industries.</span>
+              <span>These brands span different categories ({selectedIndustries.join(", ")}). Compare brands within the same buyer category; product-level comparisons are not supported.</span>
             </div>
           )}
 
