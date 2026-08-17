@@ -28,6 +28,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [selectedCandidateDomain, setSelectedCandidateDomain] = useState<string | null>(null);
+  const [website, setWebsite] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [aliasesText, setAliasesText] = useState("");
   // Chosen market for the audit: the detected home region, or null = Global. Pre-set from
@@ -412,6 +413,14 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
                   </p>
                 </div>
               </div>
+              <input
+                aria-label="Brand website"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                placeholder="Website, e.g. qutwo.com"
+                className="w-full text-sm text-slate-800 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-semibold"
+              />
+              <button onClick={() => runPreview(website)} disabled={!website.trim() || previewing} className="btn-ghost w-full text-xs disabled:opacity-50">Check website</button>
               <input
                 value={editCategory}
                 onChange={e => setEditCategory(e.target.value)}

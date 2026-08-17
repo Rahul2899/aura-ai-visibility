@@ -179,6 +179,25 @@ describe("AuditButton Component", () => {
     });
   });
 
+  it("lets an unconfirmed brand be checked against an entered website", async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ found: false, ambiguous: false, candidates: [], category: "" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ found: true, category: "quantum AI" }) });
+    global.fetch = fetchMock;
+
+    render(<AuditButton brandId={brandId} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Execute brand audit queries" }));
+    });
+
+    fireEvent.change(screen.getByLabelText("Brand website"), { target: { value: "qutwo.com" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Check website" }));
+    });
+
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("?domain=qutwo.com"), expect.objectContaining({ method: "POST" }));
+  });
+
   it("resumes polling from a stored job on mount", async () => {
     localStorage.setItem(`aura_audit_job_${brandId}`, "job_resume");
     const fetchMock = jest.fn().mockResolvedValue({
