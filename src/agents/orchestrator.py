@@ -272,9 +272,8 @@ async def _classify_candidates(llm, brand_name: str, results: list[dict]) -> lis
     sites, and auditing them inferred the categories "finance" and "marketing news
     platform". A domain simply cannot tell you what a page is; the snippet can.
 
-    One call for the whole list, on the cheap orchestration model. On any failure we
-    return the input unfiltered — a classifier outage must not leave a brand with no
-    candidates at all."""
+    One call for the whole list, on the cheap orchestration model. On an upstream
+    failure we return the input unfiltered; a model rejection itself is authoritative."""
     if not results:
         return []
     listing = "\n".join(
@@ -301,10 +300,7 @@ async def _classify_candidates(llm, brand_name: str, results: list[dict]) -> lis
         official = [results[i] for i in order if 0 <= i < len(results)]
         log.info("candidates_classified", brand=brand_name,
                  kept=len(official), dropped=len(results) - len(official))
-        # Everything looked like a third party. That's a real answer (the brand may have
-        # no site in the top results), but returning nothing would strand the user, so
-        # hand back the full list and let the entity gate downstream catch it.
-        return official or results
+        return official
     except OutOfCreditsError:
         raise  # surface the account problem instead of silently skipping the check
     except Exception as e:
@@ -1166,6 +1162,10 @@ async def preview_audit(session: AsyncSession, brand_id: int, domain_override: s
     # trust — a given domain is authoritative and skips this entirely.
     if source != "homepage" and not brand.domain:
         candidates = await _tavily_candidates(llm, name, brand.industry)
+        if not candidates:
+            return {"found": False, "ambiguous": False, "candidates": [],
+                    "category": "", "summary": "", "source": source,
+                    "detected_region": None}
         if len(candidates) >= 2:
             return {"found": False, "ambiguous": True, "candidates": candidates,
                     "category": "", "summary": "", "source": source,

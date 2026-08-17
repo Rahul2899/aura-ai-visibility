@@ -66,11 +66,10 @@ def test_classifier_outage_does_not_strand_the_brand():
     assert [c["domain"] for c in out] == ["marketermilk.com", "peec.ai"]
 
 
-def test_rejecting_everything_falls_back_to_the_full_list():
-    """A brand whose site isn't in the top results would otherwise get an empty picker
-    and no way forward."""
+def test_rejecting_everything_returns_no_selectable_sites():
+    """Publisher links must not reappear in the picker after the model rejects them."""
     out = asyncio.run(_classify_candidates(FakeLLM([]), "PeecAI", CANDIDATES))
-    assert len(out) == 2
+    assert out == []
 
 
 def test_the_models_ranking_is_preserved():
