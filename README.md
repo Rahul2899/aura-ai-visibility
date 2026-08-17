@@ -221,4 +221,6 @@ tests/                     pytest (unit + integration)
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Copyright (c) 2026 Rahul. All rights reserved. This source is proprietary;
+use, copying, modification, distribution, and derivative works require prior
+written permission. See [LICENSE](LICENSE).
