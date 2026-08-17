@@ -147,6 +147,38 @@ describe("AuditButton Component", () => {
     expect(localStorage.getItem(`aura_audit_job_${brandId}`)).toBe("job_persist");
   });
 
+  it("shows that a selected disambiguation site is being checked", async () => {
+    let resolvePreview: (value: unknown) => void = () => {};
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          found: false,
+          ambiguous: true,
+          candidates: [{ domain: "peec.ai", title: "Peec AI", description: "AI search analytics" }],
+          category: "",
+        }),
+      })
+      .mockImplementationOnce(() => new Promise(resolve => { resolvePreview = resolve; }));
+    global.fetch = fetchMock;
+
+    render(<AuditButton brandId={brandId} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Execute brand audit queries" }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Peec AI/ }));
+    });
+
+    expect(screen.getByText("Checking peec.ai…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Peec AI/ })).toBeDisabled();
+
+    await act(async () => {
+      resolvePreview({ ok: true, json: async () => ({ found: true, category: "AI search analytics" }) });
+    });
+  });
+
   it("resumes polling from a stored job on mount", async () => {
     localStorage.setItem(`aura_audit_job_${brandId}`, "job_resume");
     const fetchMock = jest.fn().mockResolvedValue({

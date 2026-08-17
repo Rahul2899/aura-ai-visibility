@@ -27,6 +27,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
   const [customText, setCustomText] = useState("");
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [selectedCandidateDomain, setSelectedCandidateDomain] = useState<string | null>(null);
   const [editCategory, setEditCategory] = useState("");
   const [aliasesText, setAliasesText] = useState("");
   // Chosen market for the audit: the detected home region, or null = Global. Pre-set from
@@ -161,6 +162,7 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
       setEditCategory("");
     } finally {
       setPreviewing(false);
+      setSelectedCandidateDomain(null);
     }
   }
 
@@ -326,10 +328,14 @@ export default function AuditButton({ brandId, brandName = "this brand", isExamp
                 </p>
               </div>
               <div className="space-y-1.5">
+                {selectedCandidateDomain && (
+                  <p className="text-[11px] font-semibold text-[var(--accent-2)]">Checking {selectedCandidateDomain}…</p>
+                )}
                 {preview.candidates.map((c, index) => (
                   <button
                     key={c.domain}
-                    onClick={() => runPreview(c.domain)}
+                    onClick={() => { setSelectedCandidateDomain(c.domain); runPreview(c.domain); }}
+                    disabled={previewing}
                     className="w-full text-left rounded-lg border border-slate-200 hover:border-[var(--accent)] hover:bg-[var(--accent-dim)] px-3 py-2 transition-colors"
                   >
                     <p className="text-sm font-bold text-slate-800 truncate">{c.title}{index === 0 && <span className="ml-2 text-[10px] uppercase tracking-wide text-[var(--accent-2)]">Recommended</span>}</p>
